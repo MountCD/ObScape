@@ -1,28 +1,34 @@
-use async_trait::async_trait;
+use std::collections::HashMap;
 use anyhow::Result;
-#[async_trait]
-pub trait LanguageModel: Send + Sync {
-    fn name(&self) -> &str;
-    async fn completion(&self, prompt: &str, history: &str) -> Result<String>;
+use crate::config;
+use reqwest;
+use serde_json::{json, to_value, Value};
 
+enum Models {
+    TalkModel,
+    WorkerModel,
+    AudioModel
 }
+fn make_map(model: Models) -> Result<HashMap<String, Value>> {
+    let config = config::load_config();
 
-pub struct LmStudioModel {
-    pub name: String,
-    pub model_id: String, // например "gemma-4-e2b" или "gemma-4-12b"
-    pub api_url: String,  // например "http://localhost:1234/v1"
-    pub temperature: f32,
-}
-
-#[async_trait]
-impl LanguageModel for LmStudioModel {
-    fn name(&self) -> &str {
-        &self.name
+    let map_model = String::new(); // обработка имени модели из конфига
+    match model {
+        Models::TalkModel => { let map_model = config.talk.model_id; }
+        Models::WorkerModel => { let map_model = config.worker.model_id; }
+        Models::AudioModel => { let map_model = config.audio.model_id; }
     }
 
-    async fn completion(&self, prompt: &str, history: &str) -> Result<String> {
-        // Здесь один общий HTTP-запрос через reqwest к LM Studio OpenAI-like API
-        // Подставляем self.model_id и self.api_url
-        todo!()
-    }
+    let req = json!({
+        "model": map_model,
+        "messages": [
+            {
+                "role": "system",
+                "message": config.prompt.merge()
+            }
+            
+        ]
+    });
+
+    todo!("make_map");
 }
