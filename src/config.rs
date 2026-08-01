@@ -20,18 +20,21 @@ pub struct TalkModel {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
+    pub api_key: String,
 }
 #[derive(Debug, Deserialize)]
 pub struct WorkerModel {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
+    pub api_key: String,
 }
 #[derive(Debug, Deserialize)]
 pub struct AudioModel {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
+    pub api_key: String,
 }
 #[derive(Debug, Deserialize)]
 pub struct Config {
