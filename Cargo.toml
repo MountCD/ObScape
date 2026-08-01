@@ -7,6 +7,5 @@ edition = "2024"
 anyhow = "1.0.104"
 async-trait = "0.1.91"
 reqwest = "0.13.4"
-serde = "1.0.229"
+serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.4"
-walkdir = "2.5.0"
