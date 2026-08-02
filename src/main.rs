@@ -11,8 +11,8 @@ async fn test() {
     let model = llm::Models::TalkModel;
     let message = String::from("Hello, how are you?");
 
-    let answer = llm::make_request(&client, model, message.as_str()).await.unwrap();
-    println!("{}", answer);
+    let answer = llm::make_request(&client, model, message.as_str()).await;
+    println!("{:?}", answer);
 }
 
 #[tokio::main]

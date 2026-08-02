@@ -1,8 +1,7 @@
 use crate::config;
 use anyhow::Result;
-use reqwest::{header, Client, Response};
-use serde_json::{Value, json, to_value};
-use std::collections::HashMap;
+use reqwest::Client;
+use serde_json::{Value, json};
 
 pub enum Models {
     TalkModel,
@@ -12,24 +11,25 @@ pub enum Models {
 pub async fn make_request(client: &Client, model: Models, message: &str) -> Result<String> {
     let config = config::load_config();
 
-    let map_model = String::new(); // обработка имени модели из конфига
-    let api_url_model = String::new();
-    let api_key_model = String::new();
+    let map_model; // обработка имени модели из конфига
+    let api_url_model ;
+    let api_key_model ;
+
     match model {
         Models::TalkModel => {
-            let map_model = config.talk.model_id;
-            let api_url_model = config.talk.api_url;
-            let api_key_model = config.talk.api_key;
+            map_model = config.talk.model_id;
+            api_url_model = config.talk.api_url;
+            api_key_model = config.talk.api_key;
         }
         Models::WorkerModel => {
-            let map_model = config.worker.model_id;
-            let api_url_model = config.worker.api_url;
-            let api_key_model = config.worker.api_key;
+            map_model = config.worker.model_id;
+            api_url_model = config.worker.api_url;
+            api_key_model = config.worker.api_key;
         }
         Models::AudioModel => {
-            let map_model = config.audio.model_id;
-            let api_url_model = config.audio.api_url;
-            let api_key_model = config.audio.api_key;
+            map_model = config.audio.model_id;
+            api_url_model = config.audio.api_url;
+            api_key_model = config.audio.api_key;
         }
     }
 
@@ -38,24 +38,28 @@ pub async fn make_request(client: &Client, model: Models, message: &str) -> Resu
         "messages": [
             {
                 "role": "system",
-                "message": config.prompt.merge()
+                "content": config.prompt.merge().to_string()
             },
             {
                 "role": "user",
-                "message": message
+                "content": message.to_string()
             }
         ]
     });
+    dbg!(&req);
 
     let mut req = client.post(api_url_model).json(&req);
     req = req.bearer_auth(api_key_model);
+    dbg!(&req);
 
-    let response = req.send().await?.json::<serde_json::Value>().await?;
+    let response = req.send().await?.json::<Value>().await?;
+    dbg!(&response);
 
     let content = response["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("Ошибка: пустой ответ")
         .to_string();
+    dbg!(&content);
 
     Ok(content)
 }

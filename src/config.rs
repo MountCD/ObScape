@@ -10,7 +10,7 @@ impl Prompt {
     pub fn merge(&self) -> String {
         let mut new_prompt = String::new();
         new_prompt.push_str(&self.system_prompt);
-        new_prompt.push_str("");
+        new_prompt.push_str(" ");
         new_prompt.push_str(&self.personal_prompt);
         new_prompt
     }
