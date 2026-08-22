@@ -1,8 +1,10 @@
 use crate::config;
+use crate::database::*;
 use anyhow::Result;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
+//use std::time::SystemTime;
 
 #[derive(Serialize, Debug)]
 pub enum Models {
@@ -10,40 +12,13 @@ pub enum Models {
     WorkerModel,
     AudioModel,
 }
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Roles {
-    System,
-    User,
-    Assistant,
-}
-#[derive(Debug, Serialize)]
-struct JsonRequest {
-    model: Models,
-    messages: Vec<JsonMessageContent>, // String -> struct
-    stream: bool,
-}
-impl JsonRequest {
-    pub fn new(model: Models, messages: Vec<JsonMessageContent>, stream: bool) -> Self {
-        JsonRequest { model, messages, stream }
-    }
-}
-#[derive(Debug, Serialize)]
-struct JsonMessageContent {
-    role: Roles,
-    message: String,
-}
-impl JsonMessageContent {
-    pub fn new(role: Roles, message: String) -> Self {
-        JsonMessageContent { role, message }
-    }
-}
-pub async fn make_request(client: &Client, model: Models, message: &str) -> Result<String> {
+
+pub async fn make_request(client: &Client, model: Models, message: String) -> Result<String> {
     let config = config::load_config();
 
     let map_model; // обработка имени модели из конфига
-    let api_url_model ;
-    let api_key_model ;
+    let api_url_model;
+    let api_key_model;
 
     match model {
         Models::TalkModel => {
@@ -63,19 +38,13 @@ pub async fn make_request(client: &Client, model: Models, message: &str) -> Resu
         }
     }
 
-    let req = json!({
-        "model": map_model,
-        "messages": [
-            {
-                "role": "system",
-                "content": config.prompt.merge().to_string()
-            },
-            {
-                "role": "user",
-                "content": message.to_string()
-            }
-        ]
-    });
+    let messages_list = Database::open_db();
+    let messages_list = messages_list.export_messages();
+
+    let json_message = JsonRequestMessage::new(map_model.clone(), messages_list.clone(), false);
+    dbg!(json!(&json_message));
+
+    let req = json!(json_message);
 
     let mut req = client.post(api_url_model).json(&req);
     req = req.bearer_auth(api_key_model);
