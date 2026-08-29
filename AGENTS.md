@@ -1,30 +1,31 @@
 # AGENTS.md
 
 ## Core Architecture
-- **Language**: Rust
-- **Runtime**: `tokio`
-- **HTTP Server**: `axum`
-- **Database**: Postgres (via `sqlx`)
-- **Purpose**: An Obsidian assistant core that manages chat history in Postgres and interacts with LLMs.
+- **Project Name**: ObScape
+- **Language**: Rust (Tokio, Axum, SQLx)
+- **Structure**: Hybrid Library/Binary
+    - `obscape_core` (lib): High-level API via `Assistant` struct for chat management and LLM interaction.
+    - `obscape_server` (bin): HTTP wrapper around the core library.
+- **Database**: Postgres (automatic table creation on startup via `Database::open_db`).
 
 ## Key Components
-- `src/main.rs`: Entry point, initializes config, DB, and starts the HTTP server.
-- `src/server.rs`: HTTP handlers and routing.
-- `src/database.rs`: Postgres interaction and message history management.
-- `src/llm.rs`: LLM request logic and model handling.
-- `src/config.rs`: Configuration loading and validation (TOML).
+- `src/lib.rs`: Entry point for the library; contains `Assistant` for simplified access to LLM/DB.
+- `src/main.rs`: Server entry point; handles CLI config and starts the Axum server.
+- `src/server.rs`: HTTP routing and DTOs.
+- `src/llm.rs`: LLM request logic.
+- `src/config.rs`: TOML config loading with CLI/ENV overrides.
 
 ## API Endpoints
-- `POST /v1/chat/new`: Create a new chat. Expects `NewChatIn` { `user_id`, `message`, `ai_type` }.
-- `POST /v1/chat/messages`: Add message to existing chat. Expects `MessageIn` { `user_id`, `chat_id`, `message` }.
+- `POST /v1/chat/new`: Create new chat + first message. Expects `{ user_id, message, ai_type }`.
+- `POST /v1/chat/messages`: Add message to existing chat. Expects `{ user_id, chat_id, message }`.
 - `GET /v1/health`: Health check.
 
 ## Developer Commands
 - Build: `cargo build`
-- Run: `cargo run`
+- Run Server: `cargo run --bin obscape_server`
 - Test: `cargo test`
 
 ## Important Notes
-- **Configuration**: Uses `config.toml` by default. Supports CLI overrides for `--config` and `--vault`.
-- **AI Types**: Assistant types are defined in `config.rs` (e.g., `talk`, `worker`, `audio`).
-- **DB Schema**: Table creation is handled automatically on startup in `database::Database::open_db`.
+- **Config**: Default is `config.toml`. Supports `--config <PATH>` and `--vault <PATH>` CLI flags.
+- **AI Types**: Model selection is defined in `Config` (talk, worker, audio).
+- **Convention**: Use `Assistant` struct for any new logic to avoid duplicating DB/LLM orchestration.
