@@ -99,9 +99,9 @@ struct PathOverrides {
 /// Распечатать краткую справку по аргументам командной строки.
 pub fn print_help() {
     println!(
-        "obsistent — Obsidian-ассистент\n\n\
+        "ObScape - ИИ ядро для вашего проекта.\n\n\
          Использование:\n  \
-             obsistent [ОПЦИИ]\n\n\
+             obscape-server [ОПЦИИ]\n\n\
          Опции:\n  \
              --config <PATH>       Путь до config.toml (по умолчанию: {DEFAULT})\n  \
              --vault <PATH>        Путь до Obsidian vault (перекрывает значение из config.toml)\n  \
