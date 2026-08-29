@@ -1,4 +1,5 @@
 vault_path = "C:/Users/MountCD/Desktop/Obsidian"
+database_url = "postgresql://postgres:693226zxc@localhost:5432/test_app"
 
 [prompt]
 system_prompt = "You are a helpful AI."
@@ -8,7 +9,7 @@ personal_prompt = "You have friendly maners and trying to help user in it's prob
 enabled=true
 model_id="prism-ml/bonsai-27b"
 api_url="http://127.0.0.1:1234/v1/chat/completions"
-api_key="sk-lm-r7AskycC:p368f0GMh9Nwup9EHWU5"
+api_key=""
 
 [worker]
 enabled=true

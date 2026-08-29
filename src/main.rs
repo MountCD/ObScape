@@ -1,24 +1,49 @@
-use reqwest::Client;
-use snailquote::unescape;
 use tokio;
 pub mod config;
 pub mod database;
 pub mod llm;
-
-#[tokio::test]
-async fn make_test_request() {
-    let client = Client::new();
-    // let config = config::load_config();
-    let model = llm::Models::TalkModel;
-    let message = String::from(
-        "Твоя задача - сделать запрос другой более сложной модели при помощи инструмента. Например: скажи сложной найти определенный по смыслу контент среди множества файлов. Оформи своё сообщение в json так, как это выглядело бы при передаче другой модели.",
-    );
-
-    let answer = llm::make_request(&client, model, message).await;
-    println!("{:?}", answer);
-}
+pub mod server;
 
 #[tokio::main]
 async fn main() {
-    println!("WIP")
+    // 1. Проверяем итоговый конфиг на ошибки.
+    let cfg = match config::dispatch_cli() {
+        Ok(c) => c,
+        Err(code) => std::process::exit(code),
+    };
+
+    // 2. Открываем БД (создаём таблицу при первом запуске).
+    let db = match database::Database::open_db(&cfg.database_url).await {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("не удалось подключиться к Postgres: {e}");
+            std::process::exit(3);
+        }
+    };
+
+    // 3-4. Запускаем ядро на порту и слушаем запросы.
+    let bind_addr = cfg
+        .http_bind
+        .clone()
+        .unwrap_or_else(|| "0.0.0.0:11080".to_string());
+    let state = server::AppState::new(db, cfg);
+
+    println!("obsistent: слушаю на http://{bind_addr}");
+    println!("  POST /v1/chat/new       — новый чат с первым сообщением");
+    println!("  POST /v1/chat/messages  — сообщение в существующий чат");
+    println!("  GET  /v1/health         — проверка работоспособности");
+
+    let app = server::router(state);
+    let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("не удалось занять {bind_addr}: {e}");
+            std::process::exit(4);
+        }
+    };
+
+    if let Err(e) = axum::serve(listener, app).await {
+        eprintln!("сервер завершился с ошибкой: {e}");
+        std::process::exit(5);
+    }
 }
