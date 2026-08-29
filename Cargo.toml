@@ -1,9 +1,18 @@
 [package]
-name = "obsistent"
+name = "obscape"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[lib]
+name = "obscape_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "obscape_server"
+path = "src/main.rs"
 
 [dependencies]
+
 anyhow = "1.0.104"
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }

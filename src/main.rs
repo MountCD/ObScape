@@ -1,8 +1,5 @@
 use tokio;
-pub mod config;
-pub mod database;
-pub mod llm;
-pub mod server;
+use obscape_core::{config, database, server};
 
 #[tokio::main]
 async fn main() {

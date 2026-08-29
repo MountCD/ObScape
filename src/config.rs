@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Prompt {
     pub system_prompt: String,
     pub personal_prompt: String,
@@ -17,28 +17,28 @@ impl Prompt {
         new_prompt
     }
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TalkModel {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
     pub api_key: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct WorkerModel {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
     pub api_key: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AudioModel {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
     pub api_key: String,
 }
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub vault_path: String,
     pub database_url: String,
