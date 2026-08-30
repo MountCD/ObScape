@@ -1,25 +1,25 @@
-[package]
-name = "obscape"
-version = "0.0.1"
-edition = "2021"
+[workspace]
+resolver = "3"
+members = ["ob_common","ob_core", "ob_lib"]
 
-[lib]
-name = "obscape_core"
-path = "src/lib.rs"
-
-[[bin]]
-name = "obscape_server"
-path = "src/main.rs"
-
-[dependencies]
-
+[workspace.dependencies]
 anyhow = "1.0.104"
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 toml = "1.1.4"
-rusqlite = { version = "0.40.1", features = ["bundled"] }
 tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "macros", "time", "sync", "net", "signal"] }
 snailquote = "0.3.1"
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "postgres"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "postgres"] }
+axum = "0.7"
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+reqwest = { version = "0.13.4", features = ["json"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+toml = "1.1.4"
+tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "macros", "time", "sync", "net", "signal"] }
+snailquote = "0.3.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "postgres"] }
 axum = "0.7"

@@ -1,5 +1,7 @@
+use ob_lib::ob_common::{config, database, llm};
+use ob_lib::{Assistant, ObScapeError};
 use tokio;
-use obscape_core::{config, database, server};
+pub mod server;
 
 #[tokio::main]
 async fn main() {
