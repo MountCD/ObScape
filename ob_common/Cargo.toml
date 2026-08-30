@@ -1,0 +1,13 @@
+[package]
+name = "ob_common"
+version = "0.0.2"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tokio.workspace = true
+sqlx.workspace = true

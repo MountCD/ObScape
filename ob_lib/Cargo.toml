@@ -1,0 +1,9 @@
+[package]
+name = "ob_lib"
+version = "0.0.2"
+edition = "2024"
+
+[dependencies]
+ob_common.workspace = true
+reqwest.workspace = true
+sqlx.workspace = true

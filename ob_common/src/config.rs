@@ -40,7 +40,6 @@ pub struct AudioModel {
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub vault_path: String,
     pub database_url: String,
     /// Адрес и порт HTTP-сервера (например, `0.0.0.0:11080`).
     /// `None` означает "использовать дефолт".
@@ -81,15 +80,15 @@ const DEFAULT_HTTP_BIND: &str = "0.0.0.0:11080";
 
 /// Переменные окружения, которые читаются как fallback.
 const ENV_CONFIG: &str = "OBSISTENT_CONFIG";
-const ENV_VAULT: &str = "OBSISTENT_VAULT";
+const ENV_DATABASE: &str = "OBSISTENT_DATABASE";
 
 /// Сырые переопределения путей, полученные из CLI / ENV.
 #[derive(Debug, Default, Clone)]
 struct PathOverrides {
     /// Путь до `config.toml` (CLI или ENV).
     config: Option<String>,
-    /// Путь до Obsidian vault (CLI или ENV).
-    vault: Option<String>,
+    /// Database URL (CLI или ENV).
+    database: Option<String>,
     /// Запрошен ли `--print-config` (после `--print-config` нужно выйти).
     print_config: bool,
     /// Запрошен ли `--help` / `-h`.
@@ -100,19 +99,19 @@ struct PathOverrides {
 pub fn print_help() {
     println!(
         "ObScape - ИИ ядро для вашего проекта.\n\n\
-         Использование:\n  \
-             obscape-server [ОПЦИИ]\n\n\
-         Опции:\n  \
-             --config <PATH>       Путь до config.toml (по умолчанию: {DEFAULT})\n  \
-             --vault <PATH>        Путь до Obsidian vault (перекрывает значение из config.toml)\n  \
-             --print-config        Напечатать итоговый Config (для отладки) и выйти\n  \
-             -h, --help            Показать эту справку и выйти\n\n\
-         Переменные окружения:\n  \
-             {ENV_CONFIG}            Аналог --config\n  \
-             {ENV_VAULT}             Аналог --vault\n",
+          Использование:\n  \
+              obscape-server [ОПЦИИ]\n\n\
+          Опции:\n  \
+              --config <PATH>       Путь до config.toml (по умолчанию: {DEFAULT})\n  \
+              --database <URL>      Database URL (перекрывает значение из config.toml)\n  \
+              --print-config        Напечатать итоговый Config (для отладки) и выйти\n  \
+              -h, --help            Показать эту справку и выйти\n\n\
+          Переменные окружения:\n  \
+              {ENV_CONFIG}            Аналог --config\n  \
+              {ENV_DATABASE}          Аналог --database\n",
         DEFAULT = DEFAULT_CONFIG_PATH,
         ENV_CONFIG = ENV_CONFIG,
-        ENV_VAULT = ENV_VAULT,
+        ENV_DATABASE = ENV_DATABASE,
     );
 }
 
@@ -127,14 +126,14 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
             "--config" => {
                 out.config = Some(next_value(&mut it, "--config")?);
             }
-            "--vault" => {
-                out.vault = Some(next_value(&mut it, "--vault")?);
+            "--database" => {
+                out.database = Some(next_value(&mut it, "--database")?);
             }
             other if other.starts_with("--config=") => {
                 out.config = Some(strip_eq(other, "--config="));
             }
-            other if other.starts_with("--vault=") => {
-                out.vault = Some(strip_eq(other, "--vault="));
+            other if other.starts_with("--database=") => {
+                out.database = Some(strip_eq(other, "--database="));
             }
             other => {
                 return Err(ConfigError::InvalidArgs(format!(
@@ -152,11 +151,11 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
             }
         }
     }
-    // То же для vault.
-    if out.vault.is_none() {
-        if let Ok(v) = env::var(ENV_VAULT) {
+    // То же для database.
+    if out.database.is_none() {
+        if let Ok(v) = env::var(ENV_DATABASE) {
             if !v.is_empty() {
-                out.vault = Some(v);
+                out.database = Some(v);
             }
         }
     }
@@ -198,15 +197,12 @@ pub fn load_config_with_args() -> Result<Config, ConfigError> {
     let contents = fs::read_to_string(&config_path).map_err(ConfigError::Io)?;
     let mut config: Config = toml::from_str(&contents).map_err(ConfigError::Parse)?;
 
-    // 3. Применяем override для vault (CLI > ENV > config.toml).
-    if let Some(vault) = overrides.vault {
-        config.vault_path = vault;
+    // 3. Применяем override для database (CLI > ENV > config.toml).
+    if let Some(database) = overrides.database {
+        config.database_url = database;
     }
 
     // 4. Пост-валидация критичных полей.
-    if config.vault_path.trim().is_empty() {
-        return Err(ConfigError::MissingField("vault_path"));
-    }
     if config.database_url.trim().is_empty() {
         return Err(ConfigError::MissingField("database_url"));
     }
@@ -239,7 +235,6 @@ pub fn load_config_with_args() -> Result<Config, ConfigError> {
 
 /// Pretty-print конфигурации для `--print-config`.
 pub fn print_config(config: &Config) {
-    println!("vault_path    = {}", config.vault_path);
     println!("database_url  = {}", config.database_url);
     println!(
         "http_bind     = {}",

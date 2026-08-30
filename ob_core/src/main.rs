@@ -1,5 +1,7 @@
+use ob_lib::ob_common::{config, database};
+use ob_lib::{Assistant, ObScapeError};
 use tokio;
-use obscape_core::{config, database, server};
+pub mod server;
 
 #[tokio::main]
 async fn main() {
@@ -27,7 +29,7 @@ async fn main() {
 
     println!("obsistent: слушаю на http://{bind_addr}");
     println!("  POST /v1/chat/new       — новый чат с первым сообщением");
-    println!("  POST /v1/chat/messages  — сообщение в существующий чат");
+    println!("  POST /v1/chat/message  — сообщение в существующий чат");
     println!("  GET  /v1/health         — проверка работоспособности");
 
     let app = server::router(state);

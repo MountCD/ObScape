@@ -1,0 +1,11 @@
+[package]
+name = "ob_core"
+version = "0.0.2"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+ob_lib.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
