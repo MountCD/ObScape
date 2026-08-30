@@ -34,7 +34,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/chat/new", post(create_chat))
-        .route("/v1/chat/messages", post(post_message))
+        .route("/v1/chat/message", post(post_message))
         .with_state(state)
 }
 
