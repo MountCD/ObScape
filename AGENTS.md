@@ -1,7 +1,6 @@
 # AGENTS.md
 
 ## Core Architecture
-- **Project Name**: ObScape
 - **Language**: Rust (Tokio, Axum, SQLx)
 - **Structure**: Cargo Workspace
     - `ob_common`: Shared utilities (config, database, llm).
