@@ -1,18 +1,15 @@
-pub mod config;
-pub mod database;
-pub mod llm;
-pub mod server;
-
+pub use ob_common;
+use ob_common::config::Config;
+use ob_common::database::{ContentStruc, Database, JsonMessageContent, Roles};
+use ob_common::llm;
+use ob_common::llm::Models;
 use std::sync::Arc;
-use crate::config::Config;
-use crate::database::{Database, ContentStruc, JsonMessageContent, Roles};
-use crate::llm::Models;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub enum ObScapeError {
     Db(sqlx::Error),
-    Llm(llm::LlmError),
+    Llm(ob_common::llm::LlmError),
     Internal(String),
 }
 
@@ -31,36 +28,57 @@ impl Assistant {
         }
     }
 
-    pub async fn send_message(&self, user_id: i64, chat_id: i64, message: String) -> Result<String, ObScapeError> {
+    pub async fn send_message(
+        &self,
+        user_id: i64,
+        chat_id: i64,
+        message: String,
+    ) -> Result<String, ObScapeError> {
         let now = unix_secs();
-        
+
         // 1. Save user message
-        self.db.add_message(JsonMessageContent::new(
-            Roles::User,
-            ContentStruc::new(iso_from_unix(now), chat_id, user_id, message.clone()),
-        )).await.map_err(ObScapeError::Db)?;
+        self.db
+            .add_message(JsonMessageContent::new(
+                Roles::User,
+                ContentStruc::new(iso_from_unix(now), chat_id, user_id, message.clone()),
+            ))
+            .await
+            .map_err(ObScapeError::Db)?;
 
         // 2. Get history and call LLM
-        let mut history = self.db.export_chat(chat_id).await.map_err(ObScapeError::Db)?;
+        let mut history = self
+            .db
+            .export_chat(chat_id)
+            .await
+            .map_err(ObScapeError::Db)?;
         let reply = llm::make_request_with(
             &self.http,
             &self.cfg,
             Models::TalkModel, // Simplified for now
             &mut history,
             message,
-        ).await.map_err(ObScapeError::Llm)?;
+        )
+        .await
+        .map_err(ObScapeError::Llm)?;
 
         // 3. Save assistant reply
         let reply_time = unix_secs();
-        self.db.add_message(JsonMessageContent::new(
-            Roles::Assistant,
-            ContentStruc::new(iso_from_unix(reply_time), chat_id, user_id, reply.clone()),
-        )).await.map_err(ObScapeError::Db)?;
+        self.db
+            .add_message(JsonMessageContent::new(
+                Roles::Assistant,
+                ContentStruc::new(iso_from_unix(reply_time), chat_id, user_id, reply.clone()),
+            ))
+            .await
+            .map_err(ObScapeError::Db)?;
 
         Ok(reply)
     }
 
-    pub async fn create_chat(&self, user_id: i64, message: String) -> Result<(i64, String), ObScapeError> {
+    pub async fn create_chat(
+        &self,
+        user_id: i64,
+        message: String,
+    ) -> Result<(i64, String), ObScapeError> {
         let chat_id = self.next_chat_id().await?;
         let reply = self.send_message(user_id, chat_id, message).await?;
         Ok((chat_id, reply))

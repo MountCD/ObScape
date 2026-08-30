@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::database::{ContentStruc, Database, JsonMessageContent, Roles};
 use crate::llm::{self, Models};
-use crate::Assistant;
+use crate::{Assistant, ObScapeError};
 use axum::{
     Json, Router,
     extract::State,
@@ -92,8 +92,13 @@ impl IntoResponse for AppError {
         let (status, msg) = match &self {
             AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             AppError::Core(e) => match e {
-                crate::ObScapeError::Db(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {err}")),
-                crate::ObScapeError::Llm(err) => (StatusCode::BAD_GATEWAY, format!("llm error: {err}")),
+                crate::ObScapeError::Db(err) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("db error: {err}"),
+                ),
+                crate::ObScapeError::Llm(err) => {
+                    (StatusCode::BAD_GATEWAY, format!("llm error: {err}"))
+                }
                 crate::ObScapeError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
             },
             AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
@@ -117,7 +122,9 @@ async fn create_chat(
         return Err(AppError::BadRequest("message is empty".into()));
     }
 
-    let (chat_id, reply) = state.assistant.create_chat(req.user_id, req.message)
+    let (chat_id, reply) = state
+        .assistant
+        .create_chat(req.user_id, req.message)
         .await
         .map_err(AppError::Core)?;
 
@@ -136,7 +143,9 @@ async fn post_message(
         return Err(AppError::BadRequest("chat_id must be positive".into()));
     }
 
-    let reply = state.assistant.send_message(req.user_id, req.chat_id, req.message)
+    let reply = state
+        .assistant
+        .send_message(req.user_id, req.chat_id, req.message)
         .await
         .map_err(AppError::Core)?;
 
