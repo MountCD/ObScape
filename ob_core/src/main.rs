@@ -29,7 +29,7 @@ async fn main() {
 
     println!("obsistent: слушаю на http://{bind_addr}");
     println!("  POST /v1/chat/new       — новый чат с первым сообщением");
-    println!("  POST /v1/chat/messages  — сообщение в существующий чат");
+    println!("  POST /v1/chat/message  — сообщение в существующий чат");
     println!("  GET  /v1/health         — проверка работоспособности");
 
     let app = server::router(state);

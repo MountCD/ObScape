@@ -27,6 +27,6 @@
 - Test: `cargo test`
 
 ## Important Notes
-- **Config**: Default is `config.toml`. Supports `--config <PATH>` and `--vault <PATH>` CLI flags.
+- **Config**: Default is `config.toml`. Supports `--config <PATH>` and `--database <PATH>` CLI flags.
 - **AI Types**: Model selection is defined in `Config` (talk, worker, audio).
 - **Convention**: Use `Assistant` in `ob_lib` for new logic to avoid duplicating DB/LLM orchestration.
