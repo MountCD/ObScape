@@ -73,7 +73,8 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// Дефолтный путь до файла конфигурации.
-const DEFAULT_CONFIG_PATH: &str = "config.toml";
+const DEFAULT_CONFIG_PATH: &str = ".config/obscape/config.toml";
+pub const DEFAULT_CONFIG_PATH_PUBLIC: &str = ".config/obscape/config.toml";
 
 /// Дефолтный адрес HTTP-сервера.
 const DEFAULT_HTTP_BIND: &str = "0.0.0.0:11080";
@@ -89,6 +90,8 @@ struct PathOverrides {
     config: Option<String>,
     /// Database URL (CLI или ENV).
     database: Option<String>,
+    /// Запрошен ли `--init` (генерация шаблона и открытие в редакторе).
+    init: bool,
     /// Запрошен ли `--print-config` (после `--print-config` нужно выйти).
     print_config: bool,
     /// Запрошен ли `--help` / `-h`.
@@ -104,6 +107,7 @@ pub fn print_help() {
           Опции:\n  \
               --config <PATH>       Путь до config.toml (по умолчанию: {DEFAULT})\n  \
               --database <URL>      Database URL (перекрывает значение из config.toml)\n  \
+              --init                Генерировать шаблон конфига и открыть его в редакторе\n  \
               --print-config        Напечатать итоговый Config (для отладки) и выйти\n  \
               -h, --help            Показать эту справку и выйти\n\n\
           Переменные окружения:\n  \
@@ -122,6 +126,7 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "-h" | "--help" => out.help = true,
+            "--init" => out.init = true,
             "--print-config" => out.print_config = true,
             "--config" => {
                 out.config = Some(next_value(&mut it, "--config")?);
@@ -182,7 +187,11 @@ pub fn load_config_with_args() -> Result<Config, ConfigError> {
 
     if overrides.help {
         print_help();
-        // Не паникуем и не возвращаем config — выходим с кодом 0.
+        std::process::exit(0);
+    }
+
+    if overrides.init {
+        init_config()?;
         std::process::exit(0);
     }
 
@@ -231,6 +240,53 @@ pub fn load_config_with_args() -> Result<Config, ConfigError> {
     }
 
     Ok(config)
+}
+
+fn init_config() -> Result<(), ConfigError> {
+    let path = PathBuf::from(DEFAULT_CONFIG_PATH);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(ConfigError::Io)?;
+    }
+
+    let template = r#"[prompt]
+system_prompt = "Ты — полезный ассистент."
+personal_prompt = "Отвечай кратко и по делу."
+
+[talk]
+enabled = true
+model_id = "gpt-4o"
+api_url = "https://api.openai.com/v1"
+api_key = "your_api_key_here"
+
+[worker]
+enabled = false
+model_id = "gpt-4o"
+api_url = "https://api.openai.com/v1"
+api_key = "your_api_key_here"
+
+[audio]
+enabled = false
+model_id = "gpt-4o"
+api_url = "https://api.openai.com/v1"
+api_key = "your_api_key_here"
+
+database_url = "postgres://user:pass@localhost:5432/obscape"
+http_bind = "0.0.0.0:11080"
+"#;
+
+    fs::write(&path, template).map_err(ConfigError::Io)?;
+    println!("Шаблон конфига создан: {}", path.display());
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("notepad").arg(&path).spawn();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    }
+
+    Ok(())
 }
 
 /// Pretty-print конфигурации для `--print-config`.

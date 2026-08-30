@@ -5,6 +5,15 @@ pub mod server;
 
 #[tokio::main]
 async fn main() {
+    // 0. Авто-инициализация, если конфиг не найден.
+    if !std::path::Path::new(config::DEFAULT_CONFIG_PATH_PUBLIC).exists() {
+        eprintln!("Конфигурационный файл не найден. Запускаю инициализацию...");
+        let _ = std::process::Command::new("cargo")
+            .args(["run", "-p", "ob_core", "--", "--init"])
+            .spawn();
+        std::process::exit(0);
+    }
+
     // 1. Проверяем итоговый конфиг на ошибки.
     let cfg = match config::dispatch_cli() {
         Ok(c) => c,
