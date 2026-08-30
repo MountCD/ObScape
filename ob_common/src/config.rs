@@ -44,6 +44,7 @@ pub struct Config {
     /// Адрес и порт HTTP-сервера (например, `0.0.0.0:11080`).
     /// `None` означает "использовать дефолт".
     pub http_bind: Option<String>,
+    pub verbose: bool,
     pub prompt: Prompt,
     pub talk: TalkModel,
     pub worker: WorkerModel,
@@ -92,6 +93,8 @@ struct PathOverrides {
     database: Option<String>,
     /// Запрошен ли `--init` (генерация шаблона и открытие в редакторе).
     init: bool,
+    /// Запрошен ли `--verbose` (подробный вывод).
+    verbose: bool,
     /// Запрошен ли `--print-config` (после `--print-config` нужно выйти).
     print_config: bool,
     /// Запрошен ли `--help` / `-h`.
@@ -108,6 +111,7 @@ pub fn print_help() {
               --config <PATH>       Путь до config.toml (по умолчанию: {DEFAULT})\n  \
               --database <URL>      Database URL (перекрывает значение из config.toml)\n  \
               --init                Генерировать шаблон конфига и открыть его в редакторе\n  \
+              --verbose             Подробный вывод логов\n  \
               --print-config        Напечатать итоговый Config (для отладки) и выйти\n  \
               -h, --help            Показать эту справку и выйти\n\n\
           Переменные окружения:\n  \
@@ -127,6 +131,7 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
         match arg.as_str() {
             "-h" | "--help" => out.help = true,
             "--init" => out.init = true,
+            "--verbose" => out.verbose = true,
             "--print-config" => out.print_config = true,
             "--config" => {
                 out.config = Some(next_value(&mut it, "--config")?);
@@ -210,6 +215,9 @@ pub fn load_config_with_args() -> Result<Config, ConfigError> {
     if let Some(database) = overrides.database {
         config.database_url = database;
     }
+    if overrides.verbose {
+        config.verbose = true;
+    }
 
     // 4. Пост-валидация критичных полей.
     if config.database_url.trim().is_empty() {
@@ -272,6 +280,7 @@ api_key = "your_api_key_here"
 
 database_url = "postgres://user:pass@localhost:5432/obscape"
 http_bind = "0.0.0.0:11080"
+verbose = false
 "#;
 
     fs::write(&path, template).map_err(ConfigError::Io)?;
@@ -296,6 +305,7 @@ pub fn print_config(config: &Config) {
         "http_bind     = {}",
         config.http_bind.as_deref().unwrap_or(DEFAULT_HTTP_BIND)
     );
+    println!("verbose       = {}", config.verbose);
     println!("prompt.system = {}", config.prompt.system_prompt);
     println!("prompt.person = {}", config.prompt.personal_prompt);
     println!(

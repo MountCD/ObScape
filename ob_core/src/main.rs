@@ -21,6 +21,9 @@ async fn main() {
     };
 
     // 2. Открываем БД (создаём таблицу при первом запуске).
+    if cfg.verbose {
+        println!("[verbose] Connecting to database: {}", cfg.database_url);
+    }
     let db = match database::Database::open_db(&cfg.database_url).await {
         Ok(d) => d,
         Err(e) => {

@@ -34,23 +34,35 @@ impl Assistant {
         chat_id: i64,
         message: String,
     ) -> Result<String, ObScapeError> {
+        if self.cfg.verbose {
+            println!("[verbose] Processing message for user {user_id}, chat {chat_id}");
+        }
+
         let now = unix_secs();
 
         // 1. Save user message
-        self.db
+        let res_save = self.db
             .add_message(JsonMessageContent::new(
                 Roles::User,
                 ContentStruc::new(iso_from_unix(now), chat_id, user_id, message.clone()),
             ))
-            .await
-            .map_err(ObScapeError::Db)?;
+            .await;
+        
+        if self.cfg.verbose {
+            println!("[verbose] Result of saving user message: {:?}", res_save);
+        }
+        res_save.map_err(ObScapeError::Db)?;
 
         // 2. Get history and call LLM
-        let mut history = self
+        let res_history = self
             .db
             .export_chat(chat_id)
-            .await
-            .map_err(ObScapeError::Db)?;
+            .await;
+            
+        if self.cfg.verbose {
+            println!("[verbose] Result of exporting chat history: {:?}", res_history);
+        }
+        let mut history = res_history.map_err(ObScapeError::Db)?;
         let reply = llm::make_request_with(
             &self.http,
             &self.cfg,
@@ -63,13 +75,17 @@ impl Assistant {
 
         // 3. Save assistant reply
         let reply_time = unix_secs();
-        self.db
+        let res_reply = self.db
             .add_message(JsonMessageContent::new(
                 Roles::Assistant,
                 ContentStruc::new(iso_from_unix(reply_time), chat_id, user_id, reply.clone()),
             ))
-            .await
-            .map_err(ObScapeError::Db)?;
+            .await;
+
+        if self.cfg.verbose {
+            println!("[verbose] Result of saving assistant reply: {:?}", res_reply);
+        }
+        res_reply.map_err(ObScapeError::Db)?;
 
         Ok(reply)
     }

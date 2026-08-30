@@ -79,6 +79,10 @@ pub async fn make_request_with(
         Models::AudioModel => (&cfg.audio.model_id, &cfg.audio.api_url, &cfg.audio.api_key),
     };
 
+    if cfg.verbose {
+        println!("[verbose] Requesting LLM: {} to {}", model_id, api_url);
+    }
+
     // Дополним историю пользовательским сообщением.
     let now = chrono_like_now();
     history.push(JsonMessageContent::new(
@@ -98,6 +102,10 @@ pub async fn make_request_with(
         .as_str()
         .ok_or(LlmError::EmptyResponse)?
         .to_string();
+
+    if cfg.verbose {
+        println!("[verbose] LLM response received: {} chars", content.len());
+    }
 
     Ok(content)
 }
