@@ -11,6 +11,6 @@ Use Assistant structure:
  - 'send_message(&self, user_id: i64, chat_id: i64, message: String)' - to send a message.
  - 'create_chat(&self, user_id: i64, message: String)' - to make a new chat.
 ## Plans:
-- [ ] Make automatic config generation.
-- [ ] Make verbose mode.
+- [x] Make automatic config generation.
+- [x] Make verbose mode.
 - [ ] Make library for other languages
