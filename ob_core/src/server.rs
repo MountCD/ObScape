@@ -1,7 +1,6 @@
 use crate::config::Config;
-use crate::database::{ContentStruc, Database, JsonMessageContent, Roles};
-use crate::llm::{self, Models};
-use crate::{Assistant, ObScapeError};
+use crate::database::Database;
+use crate::{Assistant};
 use axum::{
     Json, Router,
     extract::State,
@@ -160,9 +159,4 @@ fn unix_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
-}
-
-/// Грубый ISO-таймстамп из epoch-секунд. Достаточно для поля `time` в БД.
-fn iso_from_unix(_secs: i64) -> String {
-    "1970-01-01T00:00:00Z".to_string()
 }
