@@ -17,7 +17,7 @@
 
 ## API Endpoints
 - `POST /v1/chat/new`: Create new chat + first message. Expects `{ user_id, message, ai_type }`.
-- `POST /v1/chat/messages`: Add message to existing chat. Expects `{ user_id, chat_id, message }`.
+- `POST /v1/chat/message`: Add message to existing chat. Expects `{ user_id, chat_id, message }`.
 - `GET /v1/health`: Health check.
 
 ## Developer Commands
