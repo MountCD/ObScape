@@ -8,7 +8,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use ob_lib::ob_common::config::AgentConfig;
+use ob_common::config::AgentKind;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,7 +46,7 @@ pub struct MessageIn {
     pub user_id: i64,
     pub chat_id: i64,
     pub message: String,
-    pub agent: AgentConfig,
+    pub kind: AgentKind,
 }
 
 /// Запрос на создание нового чата с первым сообщением.
@@ -54,7 +54,7 @@ pub struct MessageIn {
 pub struct NewChatIn {
     pub user_id: i64,
     pub message: String,
-    pub agent: AgentConfig,
+    pub kind: AgentKind,
 }
 
 /// Ответ ядра: идентификатор чата, метка времени, текст ассистента, инструменты.
@@ -125,7 +125,7 @@ async fn create_chat(
 
     let (chat_id, reply) = state
         .assistant
-        .create_chat(req.user_id, req.message, req.agent)
+        .create_chat(req.user_id, req.message, req.kind)
         .await
         .map_err(AppError::Core)?;
 
@@ -146,7 +146,7 @@ async fn post_message(
 
     let reply = state
         .assistant
-        .send_message(req.user_id, req.chat_id, req.message, req.agent)
+        .send_message(req.user_id, req.chat_id, req.message, req.kind)
         .await
         .map_err(AppError::Core)?;
 

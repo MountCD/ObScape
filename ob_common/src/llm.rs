@@ -1,4 +1,4 @@
-use crate::config::{self, AgentConfig, Config};
+use crate::config::{self, AgentConfig, AgentKind, Config};
 use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
 use reqwest::Client;
 //use serde::Serialize;
@@ -58,8 +58,10 @@ pub async fn make_request_with(
     cfg: &Config,
     history: &mut Vec<JsonMessageContent>,
     message: String,
-    agent: AgentConfig,
+    kind: AgentKind,
 ) -> Result<String, LlmError> {
+    let agent = cfg.agents.get(&kind).unwrap();
+
     if cfg.verbose {
         println!(
             "[verbose] Requesting LLM: {} to {}",
@@ -77,8 +79,8 @@ pub async fn make_request_with(
     let json_message = JsonRequestMessage::new(agent.model_id.clone(), history.clone(), false);
     let req = json!(json_message);
 
-    let mut req = http.post(agent.api_url).json(&req);
-    req = req.bearer_auth(agent.api_key);
+    let mut req = http.post(agent.api_url.clone()).json(&req);
+    req = req.bearer_auth(agent.api_key.clone());
     let response = req.send().await?;
     let response = response.json::<Value>().await?;
 
@@ -100,12 +102,12 @@ pub async fn make_request_with(
 pub async fn make_request(
     client: &Client,
     message: String,
-    agent: AgentConfig,
+    kind: AgentKind,
 ) -> anyhow::Result<String> {
     let cfg = config::load_config();
     let db = Database::open_db(&cfg.database_url).await?;
     let mut history = db.export_messages().await?;
-    let reply = make_request_with(client, &cfg, &mut history, message, agent).await?;
+    let reply = make_request_with(client, &cfg, &mut history, message, kind).await?;
     Ok(reply)
 }
 

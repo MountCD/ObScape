@@ -3,21 +3,20 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum AgentKind {
     Text,
     TTS,
     STT,
     Vision,
 }
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct AgentConfig {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
     pub api_key: String,
     pub personality_prompt: String,
-    pub agent_type: AgentKind,
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -27,7 +26,7 @@ pub struct Config {
     pub http_bind: Option<String>,
     pub verbose: bool,
     pub shared_prompt: String,
-    pub agents: std::collections::HashMap<String, AgentConfig>,
+    pub agents: std::collections::HashMap<AgentKind, AgentConfig>,
 }
 
 /// Ошибки загрузки/парсинга конфигурации.

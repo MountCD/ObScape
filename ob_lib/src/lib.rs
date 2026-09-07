@@ -1,5 +1,5 @@
 pub use ob_common;
-use ob_common::config::{AgentConfig, Config};
+use ob_common::config::{AgentKind, Config};
 use ob_common::database::{ContentStruc, Database, JsonMessageContent, Roles};
 use ob_common::llm;
 use std::sync::Arc;
@@ -32,7 +32,7 @@ impl Assistant {
         user_id: i64,
         chat_id: i64,
         message: String,
-        agent: AgentConfig,
+        kind: AgentKind,
     ) -> Result<String, ObScapeError> {
         if self.cfg.verbose {
             println!("[verbose] Processing message for user {user_id}, chat {chat_id}");
@@ -64,7 +64,7 @@ impl Assistant {
             );
         }
         let mut history = res_history.map_err(ObScapeError::Db)?;
-        let reply = llm::make_request_with(&self.http, &self.cfg, &mut history, message, agent)
+        let reply = llm::make_request_with(&self.http, &self.cfg, &mut history, message, kind)
             .await
             .map_err(ObScapeError::Llm)?;
 
@@ -93,10 +93,10 @@ impl Assistant {
         &self,
         user_id: i64,
         message: String,
-        agent: AgentConfig,
+        kind: AgentKind,
     ) -> Result<(i64, String), ObScapeError> {
         let chat_id = self.next_chat_id().await?;
-        let reply = self.send_message(user_id, chat_id, message, agent).await?;
+        let reply = self.send_message(user_id, chat_id, message, kind).await?;
         Ok((chat_id, reply))
     }
 
