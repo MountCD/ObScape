@@ -1,4 +1,4 @@
-use crate::config::{self, AgentConfig, AgentKind, Config};
+use crate::config::{self, Config};
 use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
 use reqwest::Client;
 //use serde::Serialize;
@@ -58,9 +58,16 @@ pub async fn make_request_with(
     cfg: &Config,
     history: &mut Vec<JsonMessageContent>,
     message: String,
-    kind: AgentKind,
+    kind: String,
 ) -> Result<String, LlmError> {
-    let agent = cfg.agents.get(&kind).unwrap();
+    let agent = cfg
+        .agents
+        .get(&kind)
+        .ok_or(LlmError::Other(format!(
+            "No agent with such name: {}",
+            kind
+        )))
+        .unwrap();
 
     if cfg.verbose {
         println!(
@@ -102,7 +109,7 @@ pub async fn make_request_with(
 pub async fn make_request(
     client: &Client,
     message: String,
-    kind: AgentKind,
+    kind: String,
 ) -> anyhow::Result<String> {
     let cfg = config::load_config();
     let db = Database::open_db(&cfg.database_url).await?;

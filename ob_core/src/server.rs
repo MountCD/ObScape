@@ -8,7 +8,6 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use ob_common::config::AgentKind;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,7 +45,7 @@ pub struct MessageIn {
     pub user_id: i64,
     pub chat_id: i64,
     pub message: String,
-    pub kind: AgentKind,
+    pub kind: String,
 }
 
 /// Запрос на создание нового чата с первым сообщением.
@@ -54,7 +53,7 @@ pub struct MessageIn {
 pub struct NewChatIn {
     pub user_id: i64,
     pub message: String,
-    pub kind: AgentKind,
+    pub kind: String,
 }
 
 /// Ответ ядра: идентификатор чата, метка времени, текст ассистента, инструменты.

@@ -3,20 +3,18 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
-pub enum AgentKind {
-    Text,
-    TTS,
-    STT,
-    Vision,
-}
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AgentConfig {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
     pub api_key: String,
     pub personality_prompt: String,
+}
+impl AgentConfig {
+    pub fn merge_config(&self, shared: &str) -> String {
+        format!("{} {}", shared, self.personality_prompt)
+    }
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -26,7 +24,7 @@ pub struct Config {
     pub http_bind: Option<String>,
     pub verbose: bool,
     pub shared_prompt: String,
-    pub agents: std::collections::HashMap<AgentKind, AgentConfig>,
+    pub agents: std::collections::HashMap<String, AgentConfig>,
 }
 
 /// Ошибки загрузки/парсинга конфигурации.
@@ -225,6 +223,7 @@ pub fn load_config_with_args() -> Result<Config, ConfigError> {
 }
 
 fn init_config() -> Result<(), ConfigError> {
+    todo!();
     let path = PathBuf::from(DEFAULT_CONFIG_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(ConfigError::Io)?;
