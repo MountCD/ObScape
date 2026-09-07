@@ -54,8 +54,8 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// Дефолтный путь до файла конфигурации.
-const DEFAULT_CONFIG_PATH: &str = ".config/obscape/config.toml";
-pub const DEFAULT_CONFIG_PATH_PUBLIC: &str = ".config/obscape/config.toml";
+const DEFAULT_CONFIG_PATH: &str = "~/.config/obscape/config.toml";
+pub const DEFAULT_CONFIG_PATH_PUBLIC: &str = "~/.config/obscape/config.toml";
 
 /// Дефолтный адрес HTTP-сервера.
 const DEFAULT_HTTP_BIND: &str = "0.0.0.0:11080";
