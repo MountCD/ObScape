@@ -70,12 +70,12 @@ pub async fn make_request_with(
         .ok_or(AgentError::NotFound(kind))
         .unwrap();
 
-    if cfg.verbose {
-        println!(
-            "[verbose] Requesting LLM: {} to {}",
-            agent.model_id, agent.api_url
-        );
-    }
+    crate::vlog!(
+        cfg,
+        "requesting LLM: {} at {}",
+        agent.model_id,
+        agent.api_url
+    );
 
     // Дополним историю пользовательским сообщением.
     let now = chrono_like_now();
@@ -97,9 +97,7 @@ pub async fn make_request_with(
         .ok_or(AgentError::EmptyResponse)?
         .to_string();
 
-    if cfg.verbose {
-        println!("[verbose] LLM response received: {} chars", content.len());
-    }
+    crate::vlog!(cfg, "LLM response received: {} chars", content.len());
 
     Ok(content)
 }
