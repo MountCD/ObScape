@@ -1,8 +1,7 @@
 pub use ob_common;
-use ob_common::config::Config;
+use ob_common::config::{AgentConfig, Config};
 use ob_common::database::{ContentStruc, Database, JsonMessageContent, Roles};
 use ob_common::llm;
-use ob_common::llm::Models;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -33,6 +32,7 @@ impl Assistant {
         user_id: i64,
         chat_id: i64,
         message: String,
+        agent: AgentConfig,
     ) -> Result<String, ObScapeError> {
         if self.cfg.verbose {
             println!("[verbose] Processing message for user {user_id}, chat {chat_id}");
@@ -41,41 +41,37 @@ impl Assistant {
         let now = unix_secs();
 
         // 1. Save user message
-        let res_save = self.db
+        let res_save = self
+            .db
             .add_message(JsonMessageContent::new(
                 Roles::User,
                 ContentStruc::new(iso_from_unix(now), chat_id, user_id, message.clone()),
             ))
             .await;
-        
+
         if self.cfg.verbose {
             println!("[verbose] Result of saving user message: {:?}", res_save);
         }
         res_save.map_err(ObScapeError::Db)?;
 
         // 2. Get history and call LLM
-        let res_history = self
-            .db
-            .export_chat(chat_id)
-            .await;
-            
+        let res_history = self.db.export_chat(chat_id).await;
+
         if self.cfg.verbose {
-            println!("[verbose] Result of exporting chat history: {:?}", res_history);
+            println!(
+                "[verbose] Result of exporting chat history: {:?}",
+                res_history
+            );
         }
         let mut history = res_history.map_err(ObScapeError::Db)?;
-        let reply = llm::make_request_with(
-            &self.http,
-            &self.cfg,
-            Models::TalkModel, // Simplified for now
-            &mut history,
-            message,
-        )
-        .await
-        .map_err(ObScapeError::Llm)?;
+        let reply = llm::make_request_with(&self.http, &self.cfg, &mut history, message, agent)
+            .await
+            .map_err(ObScapeError::Llm)?;
 
         // 3. Save assistant reply
         let reply_time = unix_secs();
-        let res_reply = self.db
+        let res_reply = self
+            .db
             .add_message(JsonMessageContent::new(
                 Roles::Assistant,
                 ContentStruc::new(iso_from_unix(reply_time), chat_id, user_id, reply.clone()),
@@ -83,7 +79,10 @@ impl Assistant {
             .await;
 
         if self.cfg.verbose {
-            println!("[verbose] Result of saving assistant reply: {:?}", res_reply);
+            println!(
+                "[verbose] Result of saving assistant reply: {:?}",
+                res_reply
+            );
         }
         res_reply.map_err(ObScapeError::Db)?;
 
@@ -94,9 +93,10 @@ impl Assistant {
         &self,
         user_id: i64,
         message: String,
+        agent: AgentConfig,
     ) -> Result<(i64, String), ObScapeError> {
         let chat_id = self.next_chat_id().await?;
-        let reply = self.send_message(user_id, chat_id, message).await?;
+        let reply = self.send_message(user_id, chat_id, message, agent).await?;
         Ok((chat_id, reply))
     }
 

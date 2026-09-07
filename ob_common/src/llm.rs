@@ -1,18 +1,9 @@
-use crate::config::{self, Config};
-use crate::database::{
-    ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles,
-};
+use crate::config::{self, AgentConfig, Config};
+use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
 use reqwest::Client;
-use serde::Serialize;
+//use serde::Serialize;
 use serde_json::{Value, json};
 //use std::time::SystemTime;
-
-#[derive(Serialize, Debug, Clone, Copy)]
-pub enum Models {
-    TalkModel,
-    WorkerModel,
-    AudioModel,
-}
 
 /// Ошибки LLM-слоя. Используется как `AppError::Llm` в HTTP-ответах.
 #[derive(Debug)]
@@ -65,22 +56,15 @@ impl From<serde_json::Error> for LlmError {
 pub async fn make_request_with(
     http: &Client,
     cfg: &Config,
-    model: Models,
     history: &mut Vec<JsonMessageContent>,
     message: String,
+    agent: AgentConfig,
 ) -> Result<String, LlmError> {
-    let (model_id, api_url, api_key) = match model {
-        Models::TalkModel => (&cfg.talk.model_id, &cfg.talk.api_url, &cfg.talk.api_key),
-        Models::WorkerModel => (
-            &cfg.worker.model_id,
-            &cfg.worker.api_url,
-            &cfg.worker.api_key,
-        ),
-        Models::AudioModel => (&cfg.audio.model_id, &cfg.audio.api_url, &cfg.audio.api_key),
-    };
-
     if cfg.verbose {
-        println!("[verbose] Requesting LLM: {} to {}", model_id, api_url);
+        println!(
+            "[verbose] Requesting LLM: {} to {}",
+            agent.model_id, agent.api_url
+        );
     }
 
     // Дополним историю пользовательским сообщением.
@@ -90,11 +74,11 @@ pub async fn make_request_with(
         ContentStruc::new(now, 0, 0, message),
     ));
 
-    let json_message = JsonRequestMessage::new(model_id.clone(), history.clone(), false);
+    let json_message = JsonRequestMessage::new(agent.model_id.clone(), history.clone(), false);
     let req = json!(json_message);
 
-    let mut req = http.post(api_url).json(&req);
-    req = req.bearer_auth(api_key);
+    let mut req = http.post(agent.api_url).json(&req);
+    req = req.bearer_auth(agent.api_key);
     let response = req.send().await?;
     let response = response.json::<Value>().await?;
 
@@ -113,11 +97,15 @@ pub async fn make_request_with(
 /// Старый API, оставлен ради существующих вызовов (например, тестов).
 /// Открывает конфиг и БД самостоятельно — удобно для одноразовых
 /// CLI-вызовов, но в HTTP-сервере лучше использовать `make_request_with`.
-pub async fn make_request(client: &Client, model: Models, message: String) -> anyhow::Result<String> {
+pub async fn make_request(
+    client: &Client,
+    message: String,
+    agent: AgentConfig,
+) -> anyhow::Result<String> {
     let cfg = config::load_config();
     let db = Database::open_db(&cfg.database_url).await?;
     let mut history = db.export_messages().await?;
-    let reply = make_request_with(client, &cfg, model, &mut history, message).await?;
+    let reply = make_request_with(client, &cfg, &mut history, message, agent).await?;
     Ok(reply)
 }
 

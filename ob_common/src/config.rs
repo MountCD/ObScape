@@ -4,39 +4,20 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Prompt {
-    pub system_prompt: String,
-    pub personal_prompt: String,
-}
-impl Prompt {
-    pub fn merge(&self) -> String {
-        let mut new_prompt = String::new();
-        new_prompt.push_str(&self.system_prompt);
-        new_prompt.push_str(" ");
-        new_prompt.push_str(&self.personal_prompt);
-        new_prompt
-    }
+pub enum AgentKind {
+    Text,
+    TTS,
+    STT,
+    Vision,
 }
 #[derive(Debug, Deserialize, Clone)]
-pub struct TalkModel {
+pub struct AgentConfig {
     pub enabled: bool,
     pub model_id: String,
     pub api_url: String,
     pub api_key: String,
-}
-#[derive(Debug, Deserialize, Clone)]
-pub struct WorkerModel {
-    pub enabled: bool,
-    pub model_id: String,
-    pub api_url: String,
-    pub api_key: String,
-}
-#[derive(Debug, Deserialize, Clone)]
-pub struct AudioModel {
-    pub enabled: bool,
-    pub model_id: String,
-    pub api_url: String,
-    pub api_key: String,
+    pub personality_prompt: String,
+    pub agent_type: AgentKind,
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -45,10 +26,8 @@ pub struct Config {
     /// `None` означает "использовать дефолт".
     pub http_bind: Option<String>,
     pub verbose: bool,
-    pub prompt: Prompt,
-    pub talk: TalkModel,
-    pub worker: WorkerModel,
-    pub audio: AudioModel,
+    pub shared_prompt: String,
+    pub agents: std::collections::HashMap<String, AgentConfig>,
 }
 
 /// Ошибки загрузки/парсинга конфигурации.
@@ -172,10 +151,7 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
     Ok(out)
 }
 
-fn next_value<I: Iterator<Item = String>>(
-    it: &mut I,
-    flag: &str,
-) -> Result<String, ConfigError> {
+fn next_value<I: Iterator<Item = String>>(it: &mut I, flag: &str) -> Result<String, ConfigError> {
     it.next()
         .ok_or_else(|| ConfigError::InvalidArgs(format!("флаг `{flag}` требует значение")))
 }
@@ -300,26 +276,7 @@ verbose = false
 
 /// Pretty-print конфигурации для `--print-config`.
 pub fn print_config(config: &Config) {
-    println!("database_url  = {}", config.database_url);
-    println!(
-        "http_bind     = {}",
-        config.http_bind.as_deref().unwrap_or(DEFAULT_HTTP_BIND)
-    );
-    println!("verbose       = {}", config.verbose);
-    println!("prompt.system = {}", config.prompt.system_prompt);
-    println!("prompt.person = {}", config.prompt.personal_prompt);
-    println!(
-        "talk   = {{ enabled: {}, model: {}, url: {} }}",
-        config.talk.enabled, config.talk.model_id, config.talk.api_url
-    );
-    println!(
-        "worker = {{ enabled: {}, model: {}, url: {} }}",
-        config.worker.enabled, config.worker.model_id, config.worker.api_url
-    );
-    println!(
-        "audio  = {{ enabled: {}, model: {}, url: {} }}",
-        config.audio.enabled, config.audio.model_id, config.audio.api_url
-    );
+    todo!()
 }
 
 /// Удобный пресет: загрузить конфиг из `config.toml` без CLI-аргументов.
