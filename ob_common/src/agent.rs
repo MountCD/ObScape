@@ -3,7 +3,7 @@ use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMes
 use reqwest::Client;
 use serde_json::{Value, json};
 
-/// Ошибки LLM-слоя. Используется как `AppError::Llm` в HTTP-ответах.
+/// Ошибки LLM-слоя. Используется как `AppError::Agent` в HTTP-ответах.
 #[derive(Debug)]
 pub enum AgentError {
     /// Сетевая/HTTP-ошибка при обращении к апстриму.
@@ -112,7 +112,7 @@ pub async fn make_request(
     message: String,
     kind: String,
 ) -> anyhow::Result<String> {
-    let cfg = config::load_config();
+    let cfg = config::load_config().unwrap();
     let db = Database::open_db(&cfg.database_url).await?;
     let mut history = db.export_messages().await?;
     let reply = make_request_with(client, &cfg, &mut history, message, kind).await?;
