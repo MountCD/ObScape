@@ -95,10 +95,7 @@ impl Database {
     /// `postgres://user:pass@localhost:5432/obsistent`.
     /// Таблица `messages` создаётся автоматически, если её ещё нет.
     pub async fn open_db(url: &str) -> Result<Self, sqlx::Error> {
-        let pool = PgPoolOptions::new()
-            .max_connections(8)
-            .connect(url)
-            .await?;
+        let pool = PgPoolOptions::new().max_connections(8).connect(url).await?;
 
         // Авто-создание таблицы при первом запуске.
         sqlx::query(
@@ -151,10 +148,7 @@ impl Database {
     }
 
     /// Прочитать сообщения конкретного чата.
-    pub async fn export_chat(
-        &self,
-        chat_id: i64,
-    ) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
+    pub async fn export_chat(&self, chat_id: i64) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
             r#"
             SELECT "time", chat_id, user_id, role, message
@@ -189,10 +183,7 @@ impl Database {
     }
 
     /// Пакетная вставка сообщений одной транзакцией.
-    pub async fn add_messages(
-        &self,
-        messages: &[JsonMessageContent],
-    ) -> Result<(), sqlx::Error> {
+    pub async fn add_messages(&self, messages: &[JsonMessageContent]) -> Result<(), sqlx::Error> {
         if messages.is_empty() {
             return Ok(());
         }

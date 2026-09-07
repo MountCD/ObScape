@@ -1,6 +1,6 @@
+use crate::Assistant;
 use crate::config::Config;
 use crate::database::Database;
-use crate::{Assistant};
 use axum::{
     Json, Router,
     extract::State,
@@ -45,6 +45,7 @@ pub struct MessageIn {
     pub user_id: i64,
     pub chat_id: i64,
     pub message: String,
+    pub kind: String,
 }
 
 /// Запрос на создание нового чата с первым сообщением.
@@ -52,7 +53,7 @@ pub struct MessageIn {
 pub struct NewChatIn {
     pub user_id: i64,
     pub message: String,
-    pub ai_type: String,
+    pub kind: String,
 }
 
 /// Ответ ядра: идентификатор чата, метка времени, текст ассистента, инструменты.
@@ -123,7 +124,7 @@ async fn create_chat(
 
     let (chat_id, reply) = state
         .assistant
-        .create_chat(req.user_id, req.message)
+        .create_chat(req.user_id, req.message, req.kind)
         .await
         .map_err(AppError::Core)?;
 
@@ -144,7 +145,7 @@ async fn post_message(
 
     let reply = state
         .assistant
-        .send_message(req.user_id, req.chat_id, req.message)
+        .send_message(req.user_id, req.chat_id, req.message, req.kind)
         .await
         .map_err(AppError::Core)?;
 
