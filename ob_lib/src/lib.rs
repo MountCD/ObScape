@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug)]
 pub enum ObScapeError {
     Db(sqlx::Error),
-    Llm(ob_common::agent::LlmError),
+    Llm(ob_common::agent::AgentError),
     Internal(String),
 }
 

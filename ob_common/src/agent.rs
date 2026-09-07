@@ -5,46 +5,52 @@ use serde_json::{Value, json};
 
 /// Ошибки LLM-слоя. Используется как `AppError::Llm` в HTTP-ответах.
 #[derive(Debug)]
-pub enum LlmError {
+pub enum AgentError {
     /// Сетевая/HTTP-ошибка при обращении к апстриму.
     Http(reqwest::Error),
     /// Ошибка сериализации/десериализации JSON.
     Json(serde_json::Error),
     /// Апстрим вернул ответ без ожидаемого `choices[0].message.content`.
     EmptyResponse,
-    /// Прочие ошибки (например, неизвестный вариант `Models`).
+    /// Прочие ошибки .
     Other(String),
+    /// Не найден агент с таким именем .
+    NotFound(String),
+    /// Невозможность использования агента, так как он выключен .
+    Disabled(String),
 }
 
-impl std::fmt::Display for LlmError {
+impl std::fmt::Display for AgentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LlmError::Http(e) => write!(f, "http: {e}"),
-            LlmError::Json(e) => write!(f, "json: {e}"),
-            LlmError::EmptyResponse => write!(f, "empty response from upstream"),
-            LlmError::Other(s) => write!(f, "{s}"),
+            AgentError::Http(e) => write!(f, "http: {e}"),
+            AgentError::Json(e) => write!(f, "json: {e}"),
+            AgentError::EmptyResponse => write!(f, "Empty response from upstream"),
+            AgentError::Other(s) => write!(f, "{s}"),
+            AgentError::NotFound(s) => write!(f, "No agents with that name: {s}"),
+            AgentError::Disabled(s) => write!(f, "Agent '{s}' is disabled."),
         }
     }
 }
 
-impl std::error::Error for LlmError {
+impl std::error::Error for AgentError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            LlmError::Http(e) => Some(e),
-            LlmError::Json(e) => Some(e),
+            AgentError::Http(e) => Some(e),
+            AgentError::Json(e) => Some(e),
             _ => None,
         }
     }
 }
 
-impl From<reqwest::Error> for LlmError {
+impl From<reqwest::Error> for AgentError {
     fn from(e: reqwest::Error) -> Self {
-        LlmError::Http(e)
+        AgentError::Http(e)
     }
 }
-impl From<serde_json::Error> for LlmError {
+impl From<serde_json::Error> for AgentError {
     fn from(e: serde_json::Error) -> Self {
-        LlmError::Json(e)
+        AgentError::Json(e)
     }
 }
 
@@ -57,14 +63,11 @@ pub async fn make_request_with(
     history: &mut Vec<JsonMessageContent>,
     message: String,
     kind: String,
-) -> Result<String, LlmError> {
+) -> Result<String, AgentError> {
     let agent = cfg
         .agents
         .get(&kind)
-        .ok_or(LlmError::Other(format!(
-            "No agent with such name: {}",
-            kind
-        )))
+        .ok_or(AgentError::NotFound(kind))
         .unwrap();
 
     if cfg.verbose {
@@ -91,7 +94,7 @@ pub async fn make_request_with(
 
     let content = response["choices"][0]["message"]["content"]
         .as_str()
-        .ok_or(LlmError::EmptyResponse)?
+        .ok_or(AgentError::EmptyResponse)?
         .to_string();
 
     if cfg.verbose {
