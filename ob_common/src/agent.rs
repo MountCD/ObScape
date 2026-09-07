@@ -1,9 +1,7 @@
 use crate::config::{self, Config};
 use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
 use reqwest::Client;
-//use serde::Serialize;
 use serde_json::{Value, json};
-//use std::time::SystemTime;
 
 /// Ошибки LLM-слоя. Используется как `AppError::Llm` в HTTP-ответах.
 #[derive(Debug)]

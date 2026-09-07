@@ -59,7 +59,7 @@ const DEFAULT_HTTP_BIND: &str = "0.0.0.0:11080";
 /// Переменные окружения, которые читаются как fallback.
 const ENV_CONFIG: &str = "OBSISTENT_CONFIG";
 const ENV_DATABASE: &str = "OBSISTENT_DATABASE";
-
+// ---
 /// Сырые переопределения путей, полученные из CLI / ENV.
 #[derive(Debug, Default, Clone)]
 struct PathOverrides {

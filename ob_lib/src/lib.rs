@@ -1,14 +1,14 @@
 pub use ob_common;
+use ob_common::agent;
 use ob_common::config::Config;
 use ob_common::database::{ContentStruc, Database, JsonMessageContent, Roles};
-use ob_common::llm;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub enum ObScapeError {
     Db(sqlx::Error),
-    Llm(ob_common::llm::LlmError),
+    Llm(ob_common::agent::LlmError),
     Internal(String),
 }
 
@@ -64,7 +64,7 @@ impl Assistant {
             );
         }
         let mut history = res_history.map_err(ObScapeError::Db)?;
-        let reply = llm::make_request_with(&self.http, &self.cfg, &mut history, message, kind)
+        let reply = agent::make_request_with(&self.http, &self.cfg, &mut history, message, kind)
             .await
             .map_err(ObScapeError::Llm)?;
 
