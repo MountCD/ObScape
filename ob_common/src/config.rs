@@ -111,7 +111,6 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
             "-h" | "--help" => out.help = true,
             "--init" => out.init = true,
             "--verbose" => out.verbose = true,
-            "--print-config" => out.print_config = true,
             "--config" => {
                 out.config = Some(next_value(&mut it, "--config")?);
             }
@@ -232,32 +231,7 @@ fn init_config() -> Result<(), ConfigError> {
         fs::create_dir_all(parent).map_err(ConfigError::Io)?;
     }
 
-    let template = r#"[prompt]
-system_prompt = "Ты — полезный ассистент."
-personal_prompt = "Отвечай кратко и по делу."
-
-[talk]
-enabled = true
-model_id = "gpt-4o"
-api_url = "https://api.openai.com/v1"
-api_key = "your_api_key_here"
-
-[worker]
-enabled = false
-model_id = "gpt-4o"
-api_url = "https://api.openai.com/v1"
-api_key = "your_api_key_here"
-
-[audio]
-enabled = false
-model_id = "gpt-4o"
-api_url = "https://api.openai.com/v1"
-api_key = "your_api_key_here"
-
-database_url = "postgres://user:pass@localhost:5432/obscape"
-http_bind = "0.0.0.0:11080"
-verbose = false
-"#;
+    let template = r#"wip"#;
 
     fs::write(&path, template).map_err(ConfigError::Io)?;
     println!("Шаблон конфига создан: {}", path.display());
