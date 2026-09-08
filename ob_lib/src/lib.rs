@@ -1,6 +1,6 @@
 pub use ob_common;
 use ob_common::agent;
-use ob_common::config::Config;
+use ob_common::config::{AgentConfig, Config};
 use ob_common::database::{ContentStruc, Database, JsonMessageContent, Roles};
 use ob_common::vlog;
 use std::sync::Arc;
@@ -15,12 +15,13 @@ pub enum ObScapeError {
 
 pub struct Assistant {
     db: Arc<Database>,
-    cfg: Arc<Config>,
+    a_cfg: Arc<AgentConfig>,
+    s_cfg: Arc<Config>,
     http: Arc<reqwest::Client>,
 }
 
 impl Assistant {
-    pub fn new(db: Database, cfg: Config) -> Self {
+    pub fn new(db: Database, cfg: AgentConfig) -> Self {
         Self {
             db: Arc::new(db),
             cfg: Arc::new(cfg),
@@ -33,7 +34,6 @@ impl Assistant {
         user_id: i64,
         chat_id: i64,
         message: String,
-        kind: String,
     ) -> Result<String, ObScapeError> {
         vlog!(
             &*self.cfg,
@@ -57,7 +57,7 @@ impl Assistant {
         // 2. Get history and call LLM
         let res_history = ob_common::vdbg!(&*self.cfg, self.db.export_chat(chat_id).await);
         let mut history = res_history.map_err(ObScapeError::Db)?;
-        let reply = agent::make_request_with(&self.http, &self.cfg, &mut history, message, kind)
+        let reply = agent::make_request_with(&self.http, &self.cfg, &mut history, message)
             .await
             .map_err(ObScapeError::Llm)?;
 
@@ -79,12 +79,13 @@ impl Assistant {
 
     pub async fn create_chat(
         &self,
+        chat_id: i64,
         user_id: i64,
         message: String,
-        kind: String,
+        agent: String,
     ) -> Result<(i64, String), ObScapeError> {
         let chat_id = self.next_chat_id().await?;
-        let reply = self.send_message(user_id, chat_id, message, kind).await?;
+        let reply = self.send_sys_prompt(chat_id, agent).await?;
         Ok((chat_id, reply))
     }
 
@@ -94,6 +95,12 @@ impl Assistant {
             .await
             .map_err(ObScapeError::Db)?;
         Ok(row.0.unwrap_or(0).saturating_add(1))
+    }
+
+    async fn send_sys_prompt(&self, chat_id: i64, agent: String) {
+        let sys_prompt = self.cfg.merge_config(shared)
+        let reply = agent::make_request(&self.http, message, agent);
+        todo!()
     }
 }
 

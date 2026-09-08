@@ -62,14 +62,7 @@ pub async fn make_request_with(
     cfg: &Config,
     history: &mut Vec<JsonMessageContent>,
     message: String,
-    kind: String,
 ) -> Result<String, AgentError> {
-    let agent = cfg
-        .agents
-        .get(&kind)
-        .ok_or(AgentError::NotFound(kind))
-        .unwrap();
-
     crate::vlog!(
         cfg,
         "requesting LLM: {} at {}",
