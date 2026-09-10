@@ -113,6 +113,20 @@ impl Database {
         .execute(&pool)
         .await?;
 
+        // Чаты: агент закрепляется за чатом один раз, при создании.
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS chats (
+                chat_id    BIGSERIAL PRIMARY KEY,
+                user_id    BIGINT  NOT NULL,
+                agent      TEXT    NOT NULL,
+                created_at TEXT    NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await?;
+
         // Индекс для быстрых выборок по чату/времени.
         sqlx::query(
             r#"
@@ -205,6 +219,41 @@ impl Database {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    /// Создать новый чат и закрепить за ним агента.
+    ///
+    /// Возвращает выданный `chat_id`. Имя агента после этого меняться не может —
+    /// все последующие сообщения чата обслуживает именно он.
+    pub async fn create_chat(
+        &self,
+        user_id: i64,
+        agent: &str,
+        created_at: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let row: (i64,) = sqlx::query_as(
+            r#"
+            INSERT INTO chats (user_id, agent, created_at)
+            VALUES ($1, $2, $3)
+            RETURNING chat_id
+            "#,
+        )
+        .bind(user_id)
+        .bind(agent)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Имя агента, закреплённого за чатом. `None` — чата не существует.
+    pub async fn chat_agent(&self, chat_id: i64) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(String,)> =
+            sqlx::query_as(r#"SELECT agent FROM chats WHERE chat_id = $1"#)
+                .bind(chat_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.0))
     }
 
     /// Доступ к пулу — для случаев, когда нужны произвольные запросы.

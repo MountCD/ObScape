@@ -98,6 +98,7 @@ impl IntoResponse for AppError {
                 crate::ObScapeError::Llm(err) => {
                     (StatusCode::BAD_GATEWAY, format!("llm error: {err}"))
                 }
+                crate::ObScapeError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
                 crate::ObScapeError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
             },
             AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),

@@ -1,4 +1,4 @@
-use crate::config::{self, Config};
+use crate::config::{self, AgentConfig, Config};
 use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
 use reqwest::Client;
 use serde_json::{Value, json};
@@ -60,6 +60,7 @@ impl From<serde_json::Error> for AgentError {
 pub async fn make_request_with(
     http: &Client,
     cfg: &Config,
+    agent: &AgentConfig,
     history: &mut Vec<JsonMessageContent>,
     message: String,
 ) -> Result<String, AgentError> {
@@ -103,11 +104,24 @@ pub async fn make_request(
     message: String,
     kind: String,
 ) -> anyhow::Result<String> {
-    let cfg = config::load_config().unwrap();
+    let cfg = config::load_config()?;
+    let agent = resolve_agent(&cfg, &kind)?;
     let db = Database::open_db(&cfg.database_url).await?;
     let mut history = db.export_messages().await?;
-    let reply = make_request_with(client, &cfg, &mut history, message, kind).await?;
+    let reply = make_request_with(client, &cfg, &agent, &mut history, message).await?;
     Ok(reply)
+}
+
+/// Найти агента по ключу из `config.agents` и убедиться, что он включён.
+pub fn resolve_agent(cfg: &Config, kind: &str) -> Result<AgentConfig, AgentError> {
+    let agent = cfg
+        .agents
+        .get(kind)
+        .ok_or_else(|| AgentError::NotFound(kind.to_string()))?;
+    if !agent.enabled {
+        return Err(AgentError::Disabled(kind.to_string()));
+    }
+    Ok(agent.clone())
 }
 
 /// Простейшая метка времени в формате ISO-8601, без подтягивания `chrono`.
