@@ -9,8 +9,8 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use ob_common::time::unix_secs;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Состояние, разделяемое между всеми хэндлерами.
 #[derive(Clone)]
@@ -150,14 +150,4 @@ async fn post_message(
         .map_err(AppError::Core)?;
 
     Ok(Json(AssistantOut::new(req.chat_id, reply)))
-}
-
-// ---- Вспомогательное ----------------------------------------------------
-
-/// Текущее Unix-время в секундах.
-fn unix_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }

@@ -2,9 +2,9 @@ pub use ob_common;
 use ob_common::agent;
 use ob_common::config::Config;
 use ob_common::database::{ContentStruc, Database, JsonMessageContent, Roles};
+use ob_common::time::now_iso;
 use ob_common::vlog;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub enum ObScapeError {
@@ -43,7 +43,7 @@ impl Assistant {
         // Проверяем агента до того, как что-либо записывать в БД.
         let a_cfg = agent::resolve_agent(&self.cfg, &agent).map_err(ObScapeError::Llm)?;
 
-        let now = iso_from_unix(unix_secs());
+        let now = now_iso();
         let res_chat = ob_common::vdbg!(
             &*self.cfg,
             self.db.create_chat(user_id, &agent, &now).await
@@ -88,15 +88,14 @@ impl Assistant {
             .ok_or_else(|| ObScapeError::BadRequest(format!("unknown chat_id: {chat_id}")))?;
         let a_cfg = agent::resolve_agent(&self.cfg, &agent).map_err(ObScapeError::Llm)?;
 
-        let now = unix_secs();
-
         // 1. Save user message
+        let now = now_iso();
         let res_save = ob_common::vdbg!(
             &*self.cfg,
             self.db
                 .add_message(JsonMessageContent::new(
                     Roles::User,
-                    ContentStruc::new(iso_from_unix(now), chat_id, user_id, message.clone()),
+                    ContentStruc::new(now, chat_id, user_id, message.clone()),
                 ))
                 .await
         );
@@ -110,13 +109,13 @@ impl Assistant {
             .map_err(ObScapeError::Llm)?;
 
         // 3. Save assistant reply
-        let reply_time = unix_secs();
+        let reply_time = now_iso();
         let res_reply = ob_common::vdbg!(
             &*self.cfg,
             self.db
                 .add_message(JsonMessageContent::new(
                     Roles::Assistant,
-                    ContentStruc::new(iso_from_unix(reply_time), chat_id, user_id, reply.clone()),
+                    ContentStruc::new(reply_time, chat_id, user_id, reply.clone()),
                 ))
                 .await
         );
@@ -124,15 +123,4 @@ impl Assistant {
 
         Ok(reply)
     }
-}
-
-fn unix_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-fn iso_from_unix(_secs: i64) -> String {
-    "1970-01-01T00:00:00Z".to_string()
 }

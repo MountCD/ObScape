@@ -72,7 +72,7 @@ pub async fn make_request_with(
     );
 
     // Дополним историю пользовательским сообщением.
-    let now = chrono_like_now();
+    let now = crate::time::now_iso();
     history.push(JsonMessageContent::new(
         Roles::User,
         ContentStruc::new(now, 0, 0, message),
@@ -122,15 +122,4 @@ pub fn resolve_agent(cfg: &Config, kind: &str) -> Result<AgentConfig, AgentError
         return Err(AgentError::Disabled(kind.to_string()));
     }
     Ok(agent.clone())
-}
-
-/// Простейшая метка времени в формате ISO-8601, без подтягивания `chrono`.
-/// Достаточно для поля `time` в БД.
-fn chrono_like_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("1970-01-01T00:00:{secs}Z")
 }
