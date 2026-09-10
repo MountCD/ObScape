@@ -1,6 +1,6 @@
 [package]
 name = "ob_common"
-version = "0.0.2"
+version = "0.0.5"
 edition = "2024"
 
 [dependencies]

@@ -33,14 +33,28 @@ impl Roles {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct LlmMessage {
+    pub role: Roles,
+    pub content: String,
+}
+impl From<&JsonMessageContent> for LlmMessage {
+    fn from(message: &JsonMessageContent) -> Self {
+        LlmMessage {
+            role: (message.role.clone()),
+            content: (message.content.message.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct JsonRequestMessage {
     model: String,
-    messages: Vec<JsonMessageContent>,
+    messages: Vec<LlmMessage>,
     stream: bool,
 }
 
 impl JsonRequestMessage {
-    pub fn new(model: String, messages: Vec<JsonMessageContent>, stream: bool) -> Self {
+    pub fn new(model: String, messages: Vec<LlmMessage>, stream: bool) -> Self {
         JsonRequestMessage {
             model,
             messages,

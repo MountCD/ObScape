@@ -1,5 +1,7 @@
 use crate::config::{self, AgentConfig, Config};
-use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
+use crate::database::{
+    ContentStruc, Database, JsonMessageContent, JsonRequestMessage, LlmMessage, Roles,
+};
 use reqwest::Client;
 use serde_json::{Value, json};
 
@@ -78,7 +80,8 @@ pub async fn make_request_with(
         ContentStruc::new(now, 0, 0, message),
     ));
 
-    let json_message = JsonRequestMessage::new(agent.model_id.clone(), history.clone(), false);
+    let wire_history: Vec<LlmMessage> = history.iter().map(LlmMessage::from).collect();
+    let json_message = JsonRequestMessage::new(agent.model_id.clone(), wire_history, false);
     let req = json!(json_message);
 
     let mut req = http.post(agent.api_url.clone()).json(&req);
