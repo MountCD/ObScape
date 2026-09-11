@@ -7,14 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 cargo build                      # build workspace
 cargo run -p ob_core             # run the HTTP server binary
-cargo run -p ob_core -- --help   # CLI flags
-cargo test                       # run all tests
-cargo test -p ob_lib <name>      # run a single test by name in one crate
+cargo run -p ob_core -- --help   # CLI flags (--config, --database, --init, --verbose)
+cargo test                       # run all tests (currently only unit tests in ob_common/src/time.rs)
+cargo test -p ob_common <name>   # run a single test by name in one crate
 ```
 
-CI (`.github/workflows/rust.yml`) only runs `cargo build --verbose` and `cargo test --verbose` on push/PR to `master`.
+CI (`.github/workflows/rust.yml`) only runs `cargo build --verbose` and `cargo test --verbose` on push/PR to `master`. No lint/fmt step.
 
-Runtime requires a reachable PostgreSQL instance (`database_url` in config); there is no migration tool — `Database::open_db` issues `CREATE TABLE IF NOT EXISTS messages` plus an index on first connect.
+Runtime requires a reachable PostgreSQL instance (`database_url` in config). There is no migration tool — `Database::open_db` issues `CREATE TABLE IF NOT EXISTS` for `messages` and `chats` plus an index on every connect.
 
 ## Architecture
 
@@ -22,10 +22,14 @@ Cargo workspace (edition 2024, resolver 3) with three crates layered bottom-up:
 
 - **`ob_common`** — shared primitives, no knowledge of HTTP.
   - `config.rs`: `Config` / `AgentConfig`, TOML loading, hand-rolled argv parsing, `--init` template generation.
-  - `database.rs`: `Database` (thin `PgPool` wrapper) and the wire types `Roles`, `ContentStruc`, `JsonMessageContent`, `JsonRequestMessage`. These same structs are both the DB row shape and the JSON body sent upstream to the LLM.
-  - `agent.rs`: `make_request_with` — the only place an upstream LLM is called (OpenAI-compatible `choices[0].message.content`). `make_request()` is a legacy convenience wrapper that opens config+DB itself; do not use it from the server path.
-- **`ob_lib`** — `Assistant`, the orchestration layer. `send_message` does: save user message → `export_chat` history → `agent::make_request_with` → save assistant reply. `create_chat` derives a new id via `SELECT MAX(chat_id) + 1`. Errors funnel into `ObScapeError::{Db, Llm, Internal}`.
-- **`ob_core`** — the binary. `main.rs` auto-generates a config if missing, dispatches CLI, opens the DB, then serves the Axum router. `server.rs` holds `AppState { assistant, cfg }`, DTOs, and `AppError` → HTTP status mapping (`Db` → 500, `Llm` → 502, `BadRequest` → 400).
+  - `database.rs`: `Database` (thin `PgPool` wrapper) and the wire types. `JsonMessageContent { role, content: ContentStruc }` is the DB row shape; `LlmMessage { role, content: String }` (built via `From<&JsonMessageContent>`) is what actually goes upstream inside `JsonRequestMessage`.
+  - `agent.rs`: `make_request_with` — the only place an upstream LLM is called (OpenAI-compatible chat completions, reads `choices[0].message.content`, bearer auth). `resolve_agent` looks up `config.agents[key]` and rejects `enabled = false`. `make_request()` is a legacy wrapper that opens config+DB itself; do not use it from the server path.
+  - `time.rs`: dependency-free ISO-8601 UTC timestamps. Message `time` is stored as TEXT and ordered lexicographically in SQL, so keep the `YYYY-MM-DDTHH:MM:SS.mmmZ` format.
+  - `verbose.rs`: `vlog!(&cfg, ...)` and `vdbg!(&cfg, expr)` macros — print to stderr with a `[verbose] file:line]` prefix only when `cfg.verbose`. `vdbg!` returns the value like `dbg!`. Use these instead of ad-hoc `if cfg.verbose`.
+- **`ob_lib`** — `Assistant`, the orchestration layer. Errors funnel into `ObScapeError::{Db, Llm, BadRequest, Internal}`.
+  - `create_chat`: resolve agent → `INSERT INTO chats ... RETURNING chat_id` → write the system prompt (`shared_prompt + personality_prompt`) as a `System` message once → delegate to `send_message`.
+  - `send_message`: look up the chat's agent from the `chats` table (agent is fixed per chat; unknown `chat_id` → `BadRequest`) → save user message → `export_chat` history → `make_request_with` → save assistant reply.
+- **`ob_core`** — the binary. `main.rs` auto-generates a config if missing, dispatches CLI, opens the DB, then serves the Axum router. `server.rs` holds `AppState { assistant, cfg }`, DTOs, and `AppError` → HTTP status mapping (`Db`/`Internal` → 500, `Llm` → 502, `BadRequest` → 400).
 
 New behaviour belongs in `Assistant` (`ob_lib`) so the DB/LLM sequencing is not duplicated; handlers in `ob_core/src/server.rs` should stay thin validation + DTO shims.
 
@@ -34,17 +38,17 @@ Note: `ob_core/src/server.rs` refers to `crate::Assistant`, `crate::config`, `cr
 ## Endpoints
 
 - `GET  /v1/health`
-- `POST /v1/chat/new` — `{ user_id, message, kind }` → `{ chat_id, time, message, tools }`
-- `POST /v1/chat/message` — `{ user_id, chat_id, message, kind }` → same response shape
+- `POST /v1/chat/new` — `{ user_id, message, agent }` → `{ chat_id, time, message, tools }`
+- `POST /v1/chat/message` — `{ user_id, chat_id, message }` → same response shape
 
-`kind` is an agent key looked up in `config.agents` (a `HashMap<String, AgentConfig>`), not a fixed enum — agents are defined entirely in TOML.
+`agent` is a key in `config.agents` (a `HashMap<String, AgentConfig>`), not a fixed enum — agents are defined entirely in TOML and are chosen only at chat creation. `time` in responses is Unix seconds; `tools` is always empty for now.
 
 ## Config
 
-Default path is the **relative** `.config/obscape/config.toml`, so the server is sensitive to the working directory. Precedence: CLI > env (`OBSISTENT_CONFIG`, `OBSISTENT_DATABASE`) > TOML.
+Default path constant is the literal string `~/.config/obscape/config.toml` — Rust does **not** expand `~`, so the file is created/read relative to the working directory in a directory literally named `~` (README's `~/.config/obscape/config.toml` is what the author intends). Precedence: CLI > env (`OBSISTENT_CONFIG`, `OBSISTENT_DATABASE`) > TOML. `config.toml` and `.config/` are gitignored.
 
-The template written by `--init` sets `autogenerated = true`; `load_config` refuses to start while that flag is set (opens the file in an editor and returns `ConfigError::Autogenerated`), forcing the user to edit and clear it.
+The template written by `--init` sets `autogenerated = true`; `load_config` refuses to start while that flag is set (opens the file via `xdg-open`/`notepad` and returns `ConfigError::Autogenerated`), forcing the user to edit and clear it. `--verbose` (or `verbose = true`) bypasses this check. `--print-config` appears in `--help` but is not parsed by `parse_args` and will be rejected as an unknown argument.
 
 ## Conventions
 
-Doc comments and user-facing CLI/log strings are largely in Russian; match the surrounding file rather than translating. Verbose logging is gated on `cfg.verbose` with a `[verbose]` prefix printed to stdout.
+Doc comments and user-facing CLI/log strings are largely in Russian; match the surrounding file rather than translating. Verbose output goes through the `vlog!`/`vdbg!` macros (stderr), not `println!`. `AGENTS.md` just points here.
