@@ -1,5 +1,7 @@
-use crate::config::{self, Config};
-use crate::database::{ContentStruc, Database, JsonMessageContent, JsonRequestMessage, Roles};
+use crate::config::{self, AgentConfig, Config};
+use crate::database::{
+    ContentStruc, Database, JsonMessageContent, JsonRequestMessage, LlmMessage, Roles,
+};
 use reqwest::Client;
 use serde_json::{Value, json};
 
@@ -60,16 +62,10 @@ impl From<serde_json::Error> for AgentError {
 pub async fn make_request_with(
     http: &Client,
     cfg: &Config,
+    agent: &AgentConfig,
     history: &mut Vec<JsonMessageContent>,
     message: String,
-    kind: String,
 ) -> Result<String, AgentError> {
-    let agent = cfg
-        .agents
-        .get(&kind)
-        .ok_or(AgentError::NotFound(kind))
-        .unwrap();
-
     crate::vlog!(
         cfg,
         "requesting LLM: {} at {}",
@@ -78,13 +74,14 @@ pub async fn make_request_with(
     );
 
     // Дополним историю пользовательским сообщением.
-    let now = chrono_like_now();
+    let now = crate::time::now_iso();
     history.push(JsonMessageContent::new(
         Roles::User,
         ContentStruc::new(now, 0, 0, message),
     ));
 
-    let json_message = JsonRequestMessage::new(agent.model_id.clone(), history.clone(), false);
+    let wire_history: Vec<LlmMessage> = history.iter().map(LlmMessage::from).collect();
+    let json_message = JsonRequestMessage::new(agent.model_id.clone(), wire_history, false);
     let req = json!(json_message);
 
     let mut req = http.post(agent.api_url.clone()).json(&req);
@@ -110,20 +107,22 @@ pub async fn make_request(
     message: String,
     kind: String,
 ) -> anyhow::Result<String> {
-    let cfg = config::load_config().unwrap();
+    let cfg = config::load_config()?;
+    let agent = resolve_agent(&cfg, &kind)?;
     let db = Database::open_db(&cfg.database_url).await?;
     let mut history = db.export_messages().await?;
-    let reply = make_request_with(client, &cfg, &mut history, message, kind).await?;
+    let reply = make_request_with(client, &cfg, &agent, &mut history, message).await?;
     Ok(reply)
 }
 
-/// Простейшая метка времени в формате ISO-8601, без подтягивания `chrono`.
-/// Достаточно для поля `time` в БД.
-fn chrono_like_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("1970-01-01T00:00:{secs}Z")
+/// Найти агента по ключу из `config.agents` и убедиться, что он включён.
+pub fn resolve_agent(cfg: &Config, kind: &str) -> Result<AgentConfig, AgentError> {
+    let agent = cfg
+        .agents
+        .get(kind)
+        .ok_or_else(|| AgentError::NotFound(kind.to_string()))?;
+    if !agent.enabled {
+        return Err(AgentError::Disabled(kind.to_string()));
+    }
+    Ok(agent.clone())
 }

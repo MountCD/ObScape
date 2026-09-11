@@ -9,8 +9,8 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use ob_common::time::unix_secs;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Состояние, разделяемое между всеми хэндлерами.
 #[derive(Clone)]
@@ -45,7 +45,6 @@ pub struct MessageIn {
     pub user_id: i64,
     pub chat_id: i64,
     pub message: String,
-    pub kind: String,
 }
 
 /// Запрос на создание нового чата с первым сообщением.
@@ -53,7 +52,7 @@ pub struct MessageIn {
 pub struct NewChatIn {
     pub user_id: i64,
     pub message: String,
-    pub kind: String,
+    pub agent: String,
 }
 
 /// Ответ ядра: идентификатор чата, метка времени, текст ассистента, инструменты.
@@ -99,6 +98,7 @@ impl IntoResponse for AppError {
                 crate::ObScapeError::Llm(err) => {
                     (StatusCode::BAD_GATEWAY, format!("llm error: {err}"))
                 }
+                crate::ObScapeError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
                 crate::ObScapeError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
             },
             AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
@@ -124,7 +124,7 @@ async fn create_chat(
 
     let (chat_id, reply) = state
         .assistant
-        .create_chat(req.user_id, req.message, req.kind)
+        .create_chat(req.user_id, req.message, req.agent)
         .await
         .map_err(AppError::Core)?;
 
@@ -145,19 +145,9 @@ async fn post_message(
 
     let reply = state
         .assistant
-        .send_message(req.user_id, req.chat_id, req.message, req.kind)
+        .send_message(req.user_id, req.chat_id, req.message)
         .await
         .map_err(AppError::Core)?;
 
     Ok(Json(AssistantOut::new(req.chat_id, reply)))
-}
-
-// ---- Вспомогательное ----------------------------------------------------
-
-/// Текущее Unix-время в секундах.
-fn unix_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
