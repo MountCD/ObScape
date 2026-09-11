@@ -6,7 +6,7 @@ pub mod server;
 #[tokio::main]
 async fn main() {
     // 0. Авто-инициализация, если конфиг не найден.
-    if !std::path::Path::new(config::DEFAULT_CONFIG_PATH_PUBLIC).exists() {
+    if !std::path::Path::new(&config::make_file_path()).exists() {
         eprintln!("Config file is not found. Creating new...");
         match config::init_config() {
             Ok(()) => {
