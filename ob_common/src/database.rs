@@ -22,7 +22,7 @@ impl Roles {
     }
 
     /// Обратное преобразование `as_str` -> `Roles`.
-    pub fn from_str(s: &str) -> Result<Self, String> {
+    fn role_from_str(s: &str) -> Result<Self, String> {
         match s {
             "system" => Ok(Roles::System),
             "user" => Ok(Roles::User),
@@ -288,7 +288,7 @@ struct MessageRow {
 
 impl MessageRow {
     fn into_message(self) -> Result<JsonMessageContent, sqlx::Error> {
-        let role = Roles::from_str(&self.role)
+        let role = Roles::role_from_str(&self.role)
             .map_err(|e| sqlx::Error::Protocol(format!("invalid role in DB row: {e}")))?;
         Ok(JsonMessageContent {
             role,
