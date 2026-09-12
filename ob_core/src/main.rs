@@ -1,15 +1,19 @@
-use ob_common::{config, database};
+use ob_common::{
+    config::{self, format_conf_path},
+    database,
+};
 use ob_lib::{Assistant, ObScapeError};
 pub mod server;
 
 #[tokio::main]
 async fn main() {
     // 0. Авто-инициализация, если конфиг не найден.
-    let conf_path = config::resolve_config_path().unwrap(); // или обработать ошибку так же, как раньше
-    if !std::path::Path::new(&conf_path).exists() {
+    let conf_path = config::resolve_config_path().unwrap();
+    let path = format_conf_path(conf_path);
+    if !std::path::Path::new(&path).exists() {
         if config::is_containerized() {
             eprintln!(
-                "Config file not found at {conf_path}. Mount a valid config.toml into the container."
+                "Config file not found at {path}. Mount a valid config.toml into the container."
             );
             std::process::exit(2);
         }

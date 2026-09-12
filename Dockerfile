@@ -20,6 +20,6 @@ FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/ob_core /usr/local/bin/ob_core
 
-ENV OBSISTENT_CONFIG=/etc/obscape/config.toml
+ENV OBSISTENT_CONFIG_DIR=/etc/obscape/config.toml
 EXPOSE 11080
 ENTRYPOINT ["/usr/local/bin/ob_core"]
