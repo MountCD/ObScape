@@ -5,12 +5,17 @@ pub mod server;
 #[tokio::main]
 async fn main() {
     // 0. Авто-инициализация, если конфиг не найден.
-    if !std::path::Path::new(&config::make_file_path()).exists() {
+    let conf_path = config::resolve_config_path().unwrap(); // или обработать ошибку так же, как раньше
+    if !std::path::Path::new(&conf_path).exists() {
+        if config::is_containerized() {
+            eprintln!(
+                "Config file not found at {conf_path}. Mount a valid config.toml into the container."
+            );
+            std::process::exit(2);
+        }
         eprintln!("Config file is not found. Creating new...");
         match config::init_config() {
-            Ok(()) => {
-                eprintln!("Config template created. Edit it and start again.");
-            }
+            Ok(()) => eprintln!("Config template created. Edit it and start again."),
             Err(error) => {
                 eprintln!("error: {error}");
                 return;
@@ -55,8 +60,38 @@ async fn main() {
         }
     };
 
-    if let Err(e) = axum::serve(listener, app).await {
+    // main.rs, вместо axum::serve(listener, app).await
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+    {
         eprintln!("server exited with an error: {e}");
         std::process::exit(5);
+    }
+    /// Ждёт SIGINT (Ctrl+C) или SIGTERM (docker stop) для мягкой остановки.
+    async fn shutdown_signal() {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install SIGINT handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = terminate => {}
+        }
+
+        eprintln!("shutdown signal received, draining connections...");
     }
 }

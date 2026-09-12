@@ -7,7 +7,10 @@ services:
   ob_core:
     build: .
     depends_on: [db]
+    volumes:
+      - "./config.toml:/etc/obscape/config.toml:ro"
     environment:
       OBSISTENT_DATABASE: postgres://postgres:pass@db:5432/obscape
+      OBSISTENT_CONFIG: /etc/obscape/config.toml
     ports:
       - "11080:11080"
