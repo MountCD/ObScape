@@ -1,6 +1,5 @@
 use ob_common::{config, database};
 use ob_lib::{Assistant, ObScapeError};
-use tokio;
 pub mod server;
 
 #[tokio::main]
