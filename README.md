@@ -8,7 +8,7 @@
 4. Make your config in opened text redactor or open file manually in `~/.config/obscape/config.toml`
 5. Launch server again
 ### Docker:
-> Ensure what you have `docker` and `docker-compose`
+> Ensure what you have `docker` and `docker-compose` (docker-compose v2, not v1)
 1. Clone this repo ```git clone https://github.com/mountcd/obscape```
 2. Put ready to use config in project catalog
 3. Build project with `docker compose build`
