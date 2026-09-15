@@ -40,7 +40,7 @@ Note: `ob_core/src/server.rs` refers to `crate::Assistant`, `crate::config`, `cr
 ## Endpoints
 
 - `GET  /v1/health`
-- `POST /v1/chat/new` — `{ user_id, message, agent }` → `{ chat_id, time, message, tools }`
+- `POST /v1/chat/new` — `{ user_id, message, agent? }` → `{ chat_id, time, message, tools }`; `agent` omitted → the enabled agent with `main = true` (at most one is allowed, checked in `load_config`)
 - `POST /v1/chat/message` — same response shape, takes `{ user_id, chat_id, message }`
 
 `agent` is a key in `config.agents` (a `HashMap<String, AgentConfig>`), not a fixed enum — agents are defined entirely in TOML and are chosen only at chat creation. `time` in responses is Unix seconds; `tools` is always empty for now.

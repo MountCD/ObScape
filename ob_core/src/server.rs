@@ -77,7 +77,9 @@ pub struct MessageIn {
 pub struct NewChatIn {
     pub user_id: i64,
     pub message: String,
-    pub agent: String,
+    /// Ключ из `config.agents`; если не указан — агент с `main = true`.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 /// Ответ ядра: идентификатор чата, метка времени, текст ассистента, инструменты.

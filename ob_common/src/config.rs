@@ -6,6 +6,9 @@ use std::io::Write;
 #[derive(Debug, Deserialize, Clone)]
 pub struct AgentConfig {
     pub enabled: bool,
+    /// Агент по умолчанию: используется, когда в `POST /v1/chat/new`
+    /// не передан `agent`. Не больше одного включённого агента с `main = true`.
+    #[serde(default)]
     pub main: bool,
     pub model_id: String,
     pub api_url: String,
@@ -44,6 +47,16 @@ pub struct Config {
     pub agents: std::collections::HashMap<String, AgentConfig>,
 }
 
+impl Config {
+    /// Ключ включённого агента с `main = true`, если такой есть.
+    pub fn main_agent(&self) -> Option<&str> {
+        self.agents
+            .iter()
+            .find(|(_, a)| a.enabled && a.main)
+            .map(|(name, _)| name.as_str())
+    }
+}
+
 /// Дефолт для `history_limit`, если поле не задано в config.toml.
 pub const DEFAULT_HISTORY_LIMIT: u32 = 50;
 
@@ -59,6 +72,8 @@ pub enum ConfigError {
     Parse(toml::de::Error),
     MissingField(&'static str),
     InvalidArgs(String),
+    /// Конфиг разобран, но содержит противоречие.
+    Invalid(String),
     /// Не удалось определить домашнюю директорию (нет `$HOME`).
     NoHomeDir,
 }
@@ -71,6 +86,7 @@ impl std::fmt::Display for ConfigError {
             ConfigError::Parse(e) => write!(f, "failed to parse TOML: {e}"),
             ConfigError::MissingField(name) => write!(f, "missing field `{name}` in config"),
             ConfigError::InvalidArgs(msg) => write!(f, "{msg}"),
+            ConfigError::Invalid(msg) => write!(f, "invalid config: {msg}"),
             ConfigError::NoHomeDir => write!(
                 f,
                 "cannot determine home directory; set $HOME or pass --config / {ENV_CONFIG}"
@@ -302,6 +318,23 @@ pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
     if config.database_url.trim().is_empty() {
         return Err(ConfigError::MissingField("database_url"));
     }
+    let mut mains: Vec<&String> = config
+        .agents
+        .iter()
+        .filter(|(_, a)| a.enabled && a.main)
+        .map(|(name, _)| name)
+        .collect();
+    if mains.len() > 1 {
+        mains.sort();
+        return Err(ConfigError::Invalid(format!(
+            "more than one enabled agent has `main = true`: {}",
+            mains
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
     // 5. Дефолт для http_bind, если в config.toml не задан.
     if config
         .http_bind
@@ -340,6 +373,7 @@ history_limit = 50
 
 [agents.primary]
 enabled = true
+# Агент по умолчанию для POST /v1/chat/new без поля `agent`.
 main = true
 model_id = "Gemma4-E2B"
 api_url = "https://example.com/v1/"
@@ -385,6 +419,7 @@ pub fn print_config(config: &Config) {
     println!("history_limit = {}", config.history_limit);
     println!("shared_prompt = {}", config.shared_prompt);
     println!("enabled agents = {:#?}", agents_list);
+    println!("main agent    = {}", config.main_agent().unwrap_or("(none)"));
 }
 
 /// Заменить пароль в URL вида `scheme://user:pass@host/db` на `***`.
