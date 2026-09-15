@@ -25,7 +25,7 @@ Cargo workspace (edition 2024, resolver 3) with three crates layered bottom-up:
 - **`ob_common`** — shared primitives, no knowledge of HTTP.
   - `config.rs`: `Config` / `AgentConfig`, TOML loading, hand-rolled argv parsing, `--init` template generation.
   - `database.rs`: `Database` (thin `PgPool` wrapper) and the wire types. `JsonMessageContent { role, content: ContentStruc }` is the DB row shape; `LlmMessage { role, content: String }` (built via `From<&JsonMessageContent>`) is what actually goes upstream inside `JsonRequestMessage`.
-  - `agent.rs`: `make_request_with` — the only place an upstream LLM is called (OpenAI-compatible chat completions, reads `choices[0].message.content`, bearer auth). `resolve_agent` looks up `config.agents[key]` and rejects `enabled = false`. `make_request()` is a legacy wrapper that opens config+DB itself and exports *every* chat; do not use it from the server path.
+  - `agent.rs`: `make_request_with` — the only place an upstream LLM is called (OpenAI-compatible chat completions, reads `choices[0].message.content`, bearer auth). `resolve_agent` looks up `config.agents[key]` and rejects `enabled = false`.
   - `time.rs`: dependency-free ISO-8601 UTC timestamps. Message `time` is stored as TEXT and ordered lexicographically in SQL, so keep the `YYYY-MM-DDTHH:MM:SS.mmmZ` format.
   - `verbose.rs`: `vlog!(&cfg, ...)` and `vdbg!(&cfg, expr)` macros — print to stderr with a `[verbose] file:line]` prefix only when `cfg.verbose`. `vdbg!` returns the value like `dbg!`. Use these instead of ad-hoc `if cfg.verbose`.
 - **`ob_lib`** — `Assistant`, the orchestration layer. Errors funnel into `ObScapeError::{Db, Llm, BadRequest, Internal}`.

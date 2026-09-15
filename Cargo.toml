@@ -3,7 +3,6 @@ resolver = "3"
 members = ["ob_common","ob_core", "ob_lib"]
 
 [workspace.dependencies]
-anyhow = "1.0.104"
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

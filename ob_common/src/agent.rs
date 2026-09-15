@@ -1,7 +1,5 @@
-use crate::config::{self, AgentConfig, Config};
-use crate::database::{
-    ContentStruc, Database, JsonMessageContent, JsonRequestMessage, LlmMessage, Roles,
-};
+use crate::config::{AgentConfig, Config};
+use crate::database::{JsonMessageContent, JsonRequestMessage, LlmMessage};
 use reqwest::Client;
 use serde_json::{Value, json};
 
@@ -99,27 +97,6 @@ pub async fn make_request_with(
     crate::vlog!(cfg, "LLM response received: {} chars", content.len());
 
     Ok(content)
-}
-
-/// Старый API, оставлен ради существующих вызовов (например, тестов).
-/// Открывает конфиг и БД самостоятельно — удобно для одноразовых
-/// CLI-вызовов, но в HTTP-сервере лучше использовать `make_request_with`.
-pub async fn make_request(
-    client: &Client,
-    message: String,
-    kind: String,
-) -> anyhow::Result<String> {
-    let cfg = config::load_config()?;
-    let agent = resolve_agent(&cfg, &kind)?;
-    let db = Database::open_db(&cfg.database_url).await?;
-    let mut history = db.export_messages().await?;
-    let now = crate::time::now_iso();
-    history.push(JsonMessageContent::new(
-        Roles::User,
-        ContentStruc::new(now, 0, 0, message),
-    ));
-    let reply = make_request_with(client, &cfg, &agent, &history).await?;
-    Ok(reply)
 }
 
 /// Найти агента по ключу из `config.agents` и убедиться, что он включён.

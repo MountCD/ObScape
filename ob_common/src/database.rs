@@ -154,27 +154,6 @@ impl Database {
         Ok(Database { pool })
     }
 
-    /// В прежней версии сбрасывал JSON-файл. В Postgres это не нужно —
-    /// оставлено как no-op для совместимости по сигнатуре.
-    pub async fn write_db(&self) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
-    /// Прочитать все сообщения из БД, упорядоченные по `chat_id` и `time`.
-    pub async fn export_messages(&self) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, MessageRow>(
-            r#"
-            SELECT "time", chat_id, user_id, role, message
-            FROM messages
-            ORDER BY chat_id ASC, "time" ASC, id ASC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        rows.into_iter().map(MessageRow::into_message).collect()
-    }
-
     /// Прочитать сообщения конкретного чата.
     pub async fn export_chat(&self, chat_id: i64) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
