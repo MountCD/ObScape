@@ -49,7 +49,11 @@ async fn main() {
     };
 
     // 2. Открываем БД (создаём таблицу при первом запуске).
-    ob_common::vlog!(&cfg, "connecting to database: {}", cfg.database_url);
+    ob_common::vlog!(
+        &cfg,
+        "connecting to database: {}",
+        config::mask_db_password(&cfg.database_url)
+    );
     let db = match database::Database::open_db(&cfg.database_url).await {
         Ok(d) => d,
         Err(e) => {

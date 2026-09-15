@@ -362,7 +362,7 @@ pub fn print_config(config: &Config) {
 
 /// Заменить пароль в URL вида `scheme://user:pass@host/db` на `***`.
 /// URL без пароля (или без authority) возвращается как есть.
-fn mask_db_password(url: &str) -> String {
+pub fn mask_db_password(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.to_string();
     };
