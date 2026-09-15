@@ -14,6 +14,26 @@ pub enum ObScapeError {
     Internal(String),
 }
 
+impl std::fmt::Display for ObScapeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ObScapeError::Db(e) => write!(f, "db error: {e}"),
+            ObScapeError::Llm(e) => write!(f, "llm error: {e}"),
+            ObScapeError::BadRequest(m) | ObScapeError::Internal(m) => write!(f, "{m}"),
+        }
+    }
+}
+
+impl std::error::Error for ObScapeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ObScapeError::Db(e) => Some(e),
+            ObScapeError::Llm(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 pub struct Assistant {
     db: Arc<Database>,
     cfg: Arc<Config>,

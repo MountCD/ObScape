@@ -113,24 +113,36 @@ pub enum AppError {
     Internal(String),
 }
 
+impl AppError {
+    /// HTTP-статус для варианта ошибки; текст берётся из `Display`.
+    fn status(&self) -> StatusCode {
+        match self {
+            AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Core(e) => match e {
+                crate::ObScapeError::BadRequest(_) => StatusCode::BAD_REQUEST,
+                crate::ObScapeError::Llm(_) => StatusCode::BAD_GATEWAY,
+                crate::ObScapeError::Db(_) | crate::ObScapeError::Internal(_) => {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::BadRequest(m) | AppError::Internal(m) => write!(f, "{m}"),
+            AppError::Core(e) => write!(f, "{e}"),
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
-        let (status, msg) = match &self {
-            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
-            AppError::Core(e) => match e {
-                crate::ObScapeError::Db(err) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("db error: {err}"),
-                ),
-                crate::ObScapeError::Llm(err) => {
-                    (StatusCode::BAD_GATEWAY, format!("llm error: {err}"))
-                }
-                crate::ObScapeError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
-                crate::ObScapeError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
-            },
-            AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
-        };
-        (status, Json(serde_json::json!({ "error": msg }))).into_response()
+        let body = Json(serde_json::json!({ "error": self.to_string() }));
+        (self.status(), body).into_response()
     }
 }
 
