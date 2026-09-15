@@ -281,13 +281,12 @@ impl Database {
         chat_id: i64,
         user_id: i64,
     ) -> Result<Option<String>, sqlx::Error> {
-        let row: Option<(String,)> = sqlx::query_as(
-            r#"SELECT agent FROM chats WHERE chat_id = $1 AND user_id = $2"#,
-        )
-        .bind(chat_id)
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(String,)> =
+            sqlx::query_as(r#"SELECT agent FROM chats WHERE chat_id = $1 AND user_id = $2"#)
+                .bind(chat_id)
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0))
     }
 

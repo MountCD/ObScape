@@ -72,24 +72,18 @@ impl Assistant {
         // Агент не указан — берём `main = true` из конфига.
         let agent = match agent {
             Some(a) => a,
-            None => self
-                .cfg
-                .main_agent()
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    ObScapeError::BadRequest(
-                        "agent is not specified and no main agent is configured".into(),
-                    )
-                })?,
+            None => self.cfg.main_agent().map(str::to_string).ok_or_else(|| {
+                ObScapeError::BadRequest(
+                    "agent is not specified and no main agent is configured".into(),
+                )
+            })?,
         };
         // Проверяем агента до того, как что-либо записывать в БД.
         let a_cfg = agent::resolve_agent(&self.cfg, &agent).map_err(ObScapeError::Llm)?;
 
         let now = now_iso();
-        let res_chat = ob_common::vdbg!(
-            &*self.cfg,
-            self.db.create_chat(user_id, &agent, &now).await
-        );
+        let res_chat =
+            ob_common::vdbg!(&*self.cfg, self.db.create_chat(user_id, &agent, &now).await);
         let chat_id = res_chat.map_err(ObScapeError::Db)?;
         vlog!(&*self.cfg, "chat {chat_id} created for agent `{agent}`");
 

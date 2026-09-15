@@ -8,8 +8,8 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
 use ob_common::time::unix_secs;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
@@ -44,7 +44,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/chat/new", post(create_chat))
         .route("/v1/chat/message", post(post_message))
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
-        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, REQUEST_TIMEOUT))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

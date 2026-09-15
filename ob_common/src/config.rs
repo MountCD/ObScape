@@ -252,11 +252,12 @@ pub fn is_containerized() -> bool {
 
     // cgroup-путь процесса #1 обычно содержит "docker"/"kubepods"/"containerd"
     // внутри контейнера и не содержит — на голом хосте.
-    if let Ok(cgroup) = fs::read_to_string("/proc/1/cgroup") {
-        if cgroup.contains("docker") || cgroup.contains("kubepods") || cgroup.contains("containerd")
-        {
-            return true;
-        }
+    if let Ok(cgroup) = fs::read_to_string("/proc/1/cgroup")
+        && (cgroup.contains("docker")
+            || cgroup.contains("kubepods")
+            || cgroup.contains("containerd"))
+    {
+        return true;
     }
 
     false
@@ -421,7 +422,10 @@ pub fn print_config(config: &Config) {
     println!("history_limit = {}", config.history_limit);
     println!("shared_prompt = {}", config.shared_prompt);
     println!("enabled agents = {:#?}", agents_list);
-    println!("main agent    = {}", config.main_agent().unwrap_or("(none)"));
+    println!(
+        "main agent    = {}",
+        config.main_agent().unwrap_or("(none)")
+    );
 }
 
 /// Заменить пароль в URL вида `scheme://user:pass@host/db` на `***`.
