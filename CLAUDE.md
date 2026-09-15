@@ -12,7 +12,7 @@ cargo test                       # run all tests (currently only unit tests in o
 cargo test -p ob_common <name>   # run a single test by name in one crate
 ```
 
-CI (`.github/workflows/rust.yml`) only runs `cargo build --verbose` and `cargo test --verbose` on push/PR to `master`. No lint/fmt step, so `cargo fmt` / `cargo clippy` drift is not caught automatically — run them locally before pushing.
+CI (`.github/workflows/rust.yml`) runs `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo build --verbose` and `cargo test --verbose` on push/PR to `master` — run fmt and clippy locally before pushing.
 
 Runtime requires a reachable PostgreSQL instance (`database_url` in config). There is no migration tool — `Database::open_db` issues `CREATE TABLE IF NOT EXISTS` for `messages` and `chats` plus an index on every connect.
 
