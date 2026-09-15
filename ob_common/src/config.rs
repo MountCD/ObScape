@@ -345,7 +345,7 @@ pub fn print_config(config: &Config) {
         }
     }
 
-    println!("database_url  = {}", config.database_url);
+    println!("database_url  = {}", mask_db_password(&config.database_url));
     println!(
         "http_bind     = {}",
         config.http_bind.as_deref().unwrap_or(DEFAULT_HTTP_BIND)
@@ -353,6 +353,21 @@ pub fn print_config(config: &Config) {
     println!("verbose       = {}", config.verbose);
     println!("shared_prompt = {}", config.shared_prompt);
     println!("enabled agents = {:#?}", agents_list);
+}
+
+/// Заменить пароль в URL вида `scheme://user:pass@host/db` на `***`.
+/// URL без пароля (или без authority) возвращается как есть.
+fn mask_db_password(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let Some((userinfo, host)) = rest.split_once('@') else {
+        return url.to_string();
+    };
+    match userinfo.split_once(':') {
+        Some((user, _)) => format!("{scheme}://{user}:***@{host}"),
+        None => url.to_string(),
+    }
 }
 
 /// Удобство для `main()`: вернуть код возврата в зависимости от того,
@@ -366,5 +381,36 @@ pub fn dispatch_cli(overrides: &PathOverrides) -> Result<Config, i32> {
             eprintln!("{e}");
             Err(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mask_db_password;
+
+    #[test]
+    fn masks_password() {
+        assert_eq!(
+            mask_db_password("postgres://user:s3cret@localhost:5432/obscape"),
+            "postgres://user:***@localhost:5432/obscape"
+        );
+    }
+
+    #[test]
+    fn keeps_url_without_password() {
+        assert_eq!(
+            mask_db_password("postgres://user@localhost/db"),
+            "postgres://user@localhost/db"
+        );
+        assert_eq!(
+            mask_db_password("postgres://localhost/db"),
+            "postgres://localhost/db"
+        );
+    }
+
+    #[test]
+    fn masks_password_containing_at() {
+        // Незакодированный `@` в пароле — главное, что пароль не утекает.
+        assert!(!mask_db_password("postgres://u:p@ss@h/db").contains("p@ss"));
     }
 }
