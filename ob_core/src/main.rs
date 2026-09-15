@@ -7,8 +7,17 @@ pub mod server;
 
 #[tokio::main]
 async fn main() {
-    // 0. Авто-инициализация, если конфиг не найден.
-    let conf_path = match config::resolve_config_path() {
+    // 0. Разбираем аргументы и ENV один раз.
+    let overrides = match config::parse_cli() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+    };
+
+    // Авто-инициализация, если конфиг не найден.
+    let conf_path = match config::resolve_config_path(&overrides) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: {e}");
@@ -24,7 +33,7 @@ async fn main() {
             std::process::exit(2);
         }
         eprintln!("Config file is not found. Creating new...");
-        match config::init_config() {
+        match config::init_config(&overrides) {
             Ok(()) => eprintln!("Config template created. Edit it and start again."),
             Err(error) => {
                 eprintln!("error: {error}");
@@ -34,7 +43,7 @@ async fn main() {
     }
 
     // 1. Проверяем итоговый конфиг на ошибки.
-    let cfg = match config::dispatch_cli() {
+    let cfg = match config::dispatch_cli(&overrides) {
         Ok(c) => c,
         Err(code) => std::process::exit(code),
     };

@@ -85,8 +85,10 @@ const ENV_CONFIG: &str = "OBSISTENT_CONFIG";
 const ENV_DATABASE: &str = "OBSISTENT_DATABASE";
 // ---
 /// Сырые переопределения путей, полученные из CLI / ENV.
+/// Разбираются один раз в `main` через [`parse_cli`] и передаются дальше.
+/// Поля приватные — снаружи структура непрозрачна.
 #[derive(Debug, Default, Clone)]
-struct PathOverrides {
+pub struct PathOverrides {
     /// Путь до `config.toml` (CLI или ENV).
     config: Option<String>,
     /// Database URL (CLI или ENV).
@@ -121,6 +123,11 @@ pub fn print_help() {
         ENV_CONFIG = ENV_CONFIG,
         ENV_DATABASE = ENV_DATABASE,
     );
+}
+
+/// Разобрать `argv` и ENV один раз. Единственная точка входа для CLI.
+pub fn parse_cli() -> Result<PathOverrides, ConfigError> {
+    parse_args()
 }
 
 /// Разобрать `argv` (без имени программы) в `PathOverrides`.
@@ -211,23 +218,21 @@ pub fn is_containerized() -> bool {
     false
 }
 
-pub fn resolve_config_path() -> Result<String, ConfigError> {
-    let overrides = parse_args()?;
-    match overrides.config {
-        Some(p) => Ok(p),
+pub fn resolve_config_path(overrides: &PathOverrides) -> Result<String, ConfigError> {
+    match &overrides.config {
+        Some(p) => Ok(p.clone()),
         None => make_conf_path(),
     }
 }
 
 /// Загрузить конфиг с учётом CLI-аргументов и ENV.
 /// Приоритет: CLI > ENV > значение из config.toml.
-pub fn load_config() -> Result<Config, ConfigError> {
-    let mut conf_path = resolve_config_path()?;
+pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
+    let mut conf_path = resolve_config_path(overrides)?;
     conf_path = format_conf_path(conf_path);
     dbg!(&conf_path);
 
     dbg!(&conf_path);
-    let overrides = parse_args()?;
 
     if overrides.help {
         print_help();
@@ -235,7 +240,7 @@ pub fn load_config() -> Result<Config, ConfigError> {
     }
 
     if overrides.init {
-        init_config()?;
+        init_config(overrides)?;
         std::process::exit(0);
     }
 
@@ -263,8 +268,8 @@ pub fn load_config() -> Result<Config, ConfigError> {
     }
 
     // 3. Применяем override для database (CLI > ENV > config.toml).
-    if let Some(database) = overrides.database {
-        config.database_url = database;
+    if let Some(database) = &overrides.database {
+        config.database_url = database.clone();
     }
     if overrides.verbose {
         config.verbose = true;
@@ -293,8 +298,8 @@ pub fn load_config() -> Result<Config, ConfigError> {
     Ok(config)
 }
 
-pub fn init_config() -> Result<(), ConfigError> {
-    let mut path = resolve_config_path()?;
+pub fn init_config(overrides: &PathOverrides) -> Result<(), ConfigError> {
+    let mut path = resolve_config_path(overrides)?;
     dbg!(&path);
     if !fs::exists(&path).map_err(ConfigError::Io)? {
         fs::create_dir_all(&path).map_err(ConfigError::Io)?;
@@ -359,8 +364,8 @@ pub fn print_config(config: &Config) {
 /// попросил ли пользователь `--help` / `--print-config`.
 /// Возвращаем `i32`, чтобы `std::process::exit` мог принять значение
 /// и на stable Rust (где `ExitCode::process` недоступен).
-pub fn dispatch_cli() -> Result<Config, i32> {
-    match load_config() {
+pub fn dispatch_cli(overrides: &PathOverrides) -> Result<Config, i32> {
+    match load_config(overrides) {
         Ok(cfg) => Ok(cfg),
         Err(e) => {
             eprintln!("{e}");
