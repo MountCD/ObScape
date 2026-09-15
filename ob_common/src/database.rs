@@ -171,6 +171,41 @@ impl Database {
         rows.into_iter().map(MessageRow::into_message).collect()
     }
 
+    /// Прочитать системные сообщения чата плюс последние `limit` обычных —
+    /// то, что реально уходит модели. Порядок хронологический.
+    pub async fn export_chat_recent(
+        &self,
+        chat_id: i64,
+        limit: u32,
+    ) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, MessageRow>(
+            r#"
+            SELECT "time", chat_id, user_id, role, message
+            FROM (
+                SELECT id, "time", chat_id, user_id, role, message
+                FROM messages
+                WHERE chat_id = $1 AND role = 'system'
+                UNION ALL
+                SELECT id, "time", chat_id, user_id, role, message
+                FROM (
+                    SELECT id, "time", chat_id, user_id, role, message
+                    FROM messages
+                    WHERE chat_id = $1 AND role <> 'system'
+                    ORDER BY "time" DESC, id DESC
+                    LIMIT $2
+                ) AS recent
+            ) AS selected
+            ORDER BY "time" ASC, id ASC
+            "#,
+        )
+        .bind(chat_id)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(MessageRow::into_message).collect()
+    }
+
     /// Добавить одно сообщение.
     pub async fn add_message(&self, message: JsonMessageContent) -> Result<(), sqlx::Error> {
         sqlx::query(

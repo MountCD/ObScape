@@ -26,7 +26,18 @@ pub struct Config {
     pub http_bind: Option<String>,
     pub verbose: bool,
     pub shared_prompt: String,
+    /// Сколько последних сообщений (без учёта системного промпта)
+    /// отправлять модели. Ограничивает рост запроса на длинных чатах.
+    #[serde(default = "default_history_limit")]
+    pub history_limit: u32,
     pub agents: std::collections::HashMap<String, AgentConfig>,
+}
+
+/// Дефолт для `history_limit`, если поле не задано в config.toml.
+pub const DEFAULT_HISTORY_LIMIT: u32 = 50;
+
+fn default_history_limit() -> u32 {
+    DEFAULT_HISTORY_LIMIT
 }
 
 /// Ошибки загрузки/парсинга конфигурации.
@@ -313,6 +324,8 @@ database_url = "postgres://user:pass@localhost:5432/obscape"
 http_bind = "0.0.0.0:11080"
 verbose = false
 shared_prompt = "You are a helpful assistant. Say hello to user."
+# Сколько последних сообщений чата отправлять модели (системный промпт не считается).
+history_limit = 50
 
 [agents.primary]
 enabled = true
@@ -356,6 +369,7 @@ pub fn print_config(config: &Config) {
         config.http_bind.as_deref().unwrap_or(DEFAULT_HTTP_BIND)
     );
     println!("verbose       = {}", config.verbose);
+    println!("history_limit = {}", config.history_limit);
     println!("shared_prompt = {}", config.shared_prompt);
     println!("enabled agents = {:#?}", agents_list);
 }
