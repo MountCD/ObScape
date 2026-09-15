@@ -108,6 +108,14 @@ impl Database {
     /// `url` — обычный Postgres URL, например:
     /// `postgres://user:pass@localhost:5432/obsistent`.
     /// Таблица `messages` создаётся автоматически, если её ещё нет.
+    /// Открыть пул без подключения и без создания таблиц — соединение
+    /// устанавливается при первом запросе. Нужно для тестов хэндлеров,
+    /// которые не доходят до БД; для сервера используйте `open_db`.
+    pub fn connect_lazy(url: &str) -> Result<Self, sqlx::Error> {
+        let pool = PgPoolOptions::new().max_connections(1).connect_lazy(url)?;
+        Ok(Database { pool })
+    }
+
     pub async fn open_db(url: &str) -> Result<Self, sqlx::Error> {
         let pool = PgPoolOptions::new().max_connections(8).connect(url).await?;
 
@@ -319,5 +327,31 @@ impl MessageRow {
                 message: self.message,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Roles;
+
+    #[test]
+    fn role_round_trip() {
+        for role in [Roles::System, Roles::User, Roles::Assistant] {
+            let back = Roles::role_from_str(role.as_str()).unwrap();
+            assert_eq!(back.as_str(), role.as_str());
+        }
+    }
+
+    #[test]
+    fn unknown_role_is_rejected() {
+        assert!(Roles::role_from_str("tool").is_err());
+    }
+
+    #[test]
+    fn role_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&Roles::Assistant).unwrap(),
+            "\"assistant\""
+        );
     }
 }

@@ -1154,11 +1154,13 @@ name = "ob_core"
 version = "0.0.5"
 dependencies = [
  "axum",
+ "http-body-util",
  "ob_common",
  "ob_lib",
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http",
  "tracing-subscriber",
 ]
