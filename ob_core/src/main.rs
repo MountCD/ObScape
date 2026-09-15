@@ -7,6 +7,10 @@ pub mod server;
 
 #[tokio::main]
 async fn main() {
+    // .env из текущей директории (если есть). Уже заданные переменные
+    // окружения имеют приоритет — dotenvy их не перезаписывает.
+    let _ = dotenvy::dotenv();
+
     // 0. Разбираем аргументы и ENV один раз.
     let overrides = match config::parse_cli() {
         Ok(o) => o,
