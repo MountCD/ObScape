@@ -94,7 +94,6 @@ async fn main() {
         }
     };
 
-    // main.rs, вместо axum::serve(listener, app).await
     if let Err(e) = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
@@ -102,30 +101,31 @@ async fn main() {
         eprintln!("server exited with an error: {e}");
         std::process::exit(5);
     }
-    /// Ждёт SIGINT (Ctrl+C) или SIGTERM (docker stop) для мягкой остановки.
-    async fn shutdown_signal() {
-        let ctrl_c = async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install SIGINT handler");
-        };
+}
 
-        #[cfg(unix)]
-        let terminate = async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
+/// Ждёт SIGINT (Ctrl+C) или SIGTERM (docker stop) для мягкой остановки.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install SIGINT handler");
+    };
 
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
 
-        tokio::select! {
-            _ = ctrl_c => {}
-            _ = terminate => {}
-        }
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
 
-        eprintln!("shutdown signal received, draining connections...");
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
     }
+
+    eprintln!("shutdown signal received, draining connections...");
 }

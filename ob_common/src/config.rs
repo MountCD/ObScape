@@ -27,8 +27,10 @@ fn default_timeout_secs() -> u64 {
     DEFAULT_TIMEOUT_SECS
 }
 impl AgentConfig {
+    /// Системный промпт чата: общий + личный, через пустую строку,
+    /// чтобы многострочные промпты не слипались.
     pub fn merge_config(&self, shared: &str) -> String {
-        format!("{} {}", shared, self.personality_prompt)
+        format!("{}\n\n{}", shared, self.personality_prompt)
     }
 }
 #[derive(Debug, Deserialize, Clone)]
