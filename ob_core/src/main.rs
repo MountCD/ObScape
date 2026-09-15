@@ -48,6 +48,17 @@ async fn main() {
         Err(code) => std::process::exit(code),
     };
 
+    // Логирование HTTP-запросов (TraceLayer) — только в verbose-режиме.
+    if cfg.verbose {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "tower_http=debug".into()),
+            )
+            .with_writer(std::io::stderr)
+            .init();
+    }
+
     // 2. Открываем БД (создаём таблицу при первом запуске).
     ob_common::vlog!(
         &cfg,

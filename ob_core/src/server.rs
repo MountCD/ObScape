@@ -11,6 +11,15 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use ob_common::time::unix_secs;
 use std::sync::Arc;
+use std::time::Duration;
+use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
+
+/// Максимальный размер тела запроса (JSON с сообщением).
+const MAX_BODY_BYTES: usize = 64 * 1024;
+/// Максимальная длина `message` в символах.
+const MAX_MESSAGE_CHARS: usize = 16 * 1024;
+/// Сколько ждём обработку одного запроса (включая апстрим).
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Состояние, разделяемое между всеми хэндлерами.
 #[derive(Clone)]
@@ -34,7 +43,23 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/health", get(health))
         .route("/v1/chat/new", post(create_chat))
         .route("/v1/chat/message", post(post_message))
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, REQUEST_TIMEOUT))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+/// Общая валидация текста сообщения для обоих хэндлеров.
+fn validate_message(message: &str) -> Result<(), AppError> {
+    if message.trim().is_empty() {
+        return Err(AppError::BadRequest("message is empty".into()));
+    }
+    if message.chars().count() > MAX_MESSAGE_CHARS {
+        return Err(AppError::BadRequest(format!(
+            "message is too long (max {MAX_MESSAGE_CHARS} chars)"
+        )));
+    }
+    Ok(())
 }
 
 // ---- DTO ----------------------------------------------------------------
@@ -118,9 +143,7 @@ async fn create_chat(
     State(state): State<AppState>,
     Json(req): Json<NewChatIn>,
 ) -> Result<Json<AssistantOut>, AppError> {
-    if req.message.trim().is_empty() {
-        return Err(AppError::BadRequest("message is empty".into()));
-    }
+    validate_message(&req.message)?;
 
     let (chat_id, reply) = state
         .assistant
@@ -131,14 +154,12 @@ async fn create_chat(
     Ok(Json(AssistantOut::new(chat_id, reply)))
 }
 
-/// `POST /v1/chat/messages` — добавить сообщение в существующем чате.
+/// `POST /v1/chat/message` — добавить сообщение в существующем чате.
 async fn post_message(
     State(state): State<AppState>,
     Json(req): Json<MessageIn>,
 ) -> Result<Json<AssistantOut>, AppError> {
-    if req.message.trim().is_empty() {
-        return Err(AppError::BadRequest("message is empty".into()));
-    }
+    validate_message(&req.message)?;
     if req.chat_id <= 0 {
         return Err(AppError::BadRequest("chat_id must be positive".into()));
     }
