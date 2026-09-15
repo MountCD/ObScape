@@ -8,7 +8,13 @@ pub mod server;
 #[tokio::main]
 async fn main() {
     // 0. Авто-инициализация, если конфиг не найден.
-    let conf_path = config::resolve_config_path().unwrap();
+    let conf_path = match config::resolve_config_path() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+    };
     let path = format_conf_path(conf_path);
     if !std::path::Path::new(&path).exists() {
         if config::is_containerized() {

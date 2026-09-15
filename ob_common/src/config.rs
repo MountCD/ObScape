@@ -37,6 +37,8 @@ pub enum ConfigError {
     Parse(toml::de::Error),
     MissingField(&'static str),
     InvalidArgs(String),
+    /// Не удалось определить домашнюю директорию (нет `$HOME`).
+    NoHomeDir,
 }
 
 impl std::fmt::Display for ConfigError {
@@ -47,22 +49,28 @@ impl std::fmt::Display for ConfigError {
             ConfigError::Parse(e) => write!(f, "failed to parse TOML: {e}"),
             ConfigError::MissingField(name) => write!(f, "missing field `{name}` in config"),
             ConfigError::InvalidArgs(msg) => write!(f, "{msg}"),
+            ConfigError::NoHomeDir => write!(
+                f,
+                "cannot determine home directory; set $HOME or pass --config / {ENV_CONFIG}"
+            ),
         }
     }
 }
 
 impl std::error::Error for ConfigError {}
 
-/// Дефолтный путь до файла конфигурации.
-fn make_conf_path() -> String {
-    let home = env::home_dir().unwrap().into_os_string();
-    let out = format!("{}/.config/obscape", home.into_string().unwrap());
+/// Дефолтная директория конфигурации (`$HOME/.config/obscape`).
+fn make_conf_path() -> Result<String, ConfigError> {
+    let home = env::home_dir()
+        .and_then(|h| h.into_os_string().into_string().ok())
+        .ok_or(ConfigError::NoHomeDir)?;
+    let out = format!("{home}/.config/obscape");
     dbg!(&out);
-    out
+    Ok(out)
 }
 
-pub fn make_file_path() -> String {
-    format!("{}/config.toml", make_conf_path())
+pub fn make_file_path() -> Result<String, ConfigError> {
+    Ok(format!("{}/config.toml", make_conf_path()?))
 }
 
 pub fn format_conf_path(path: String) -> String {
@@ -109,7 +117,7 @@ pub fn print_help() {
           Environment variables:\n  \
               {ENV_CONFIG}            Same as --config\n  \
               {ENV_DATABASE}          Same as --database\n",
-        DEFAULT = make_file_path(),
+        DEFAULT = make_file_path().unwrap_or_else(|_| "~/.config/obscape/config.toml".to_string()),
         ENV_CONFIG = ENV_CONFIG,
         ENV_DATABASE = ENV_DATABASE,
     );
@@ -124,6 +132,7 @@ fn parse_args() -> Result<PathOverrides, ConfigError> {
             "-h" | "--help" => out.help = true,
             "--init" => out.init = true,
             "--verbose" => out.verbose = true,
+            "--print-config" => out.print_config = true,
             "--config" => {
                 out.config = Some(next_value(&mut it, "--config")?);
             }
@@ -204,7 +213,10 @@ pub fn is_containerized() -> bool {
 
 pub fn resolve_config_path() -> Result<String, ConfigError> {
     let overrides = parse_args()?;
-    Ok(overrides.config.unwrap_or_else(make_conf_path))
+    match overrides.config {
+        Some(p) => Ok(p),
+        None => make_conf_path(),
+    }
 }
 
 /// Загрузить конфиг с учётом CLI-аргументов и ENV.
@@ -282,10 +294,10 @@ pub fn load_config() -> Result<Config, ConfigError> {
 }
 
 pub fn init_config() -> Result<(), ConfigError> {
-    let mut path = resolve_config_path().unwrap();
+    let mut path = resolve_config_path()?;
     dbg!(&path);
-    if !std::fs::exists(&path).map_err(ConfigError::Io).unwrap() {
-        fs::create_dir(&path).map_err(ConfigError::Io)?;
+    if !fs::exists(&path).map_err(ConfigError::Io)? {
+        fs::create_dir_all(&path).map_err(ConfigError::Io)?;
     }
     path = format_conf_path(path);
     let mut file = fs::File::create_new(&path).map_err(ConfigError::Io)?;
