@@ -65,7 +65,6 @@ fn make_conf_path() -> Result<String, ConfigError> {
         .and_then(|h| h.into_os_string().into_string().ok())
         .ok_or(ConfigError::NoHomeDir)?;
     let out = format!("{home}/.config/obscape");
-    dbg!(&out);
     Ok(out)
 }
 
@@ -230,9 +229,6 @@ pub fn resolve_config_path(overrides: &PathOverrides) -> Result<String, ConfigEr
 pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
     let mut conf_path = resolve_config_path(overrides)?;
     conf_path = format_conf_path(conf_path);
-    dbg!(&conf_path);
-
-    dbg!(&conf_path);
 
     if overrides.help {
         print_help();
@@ -300,7 +296,6 @@ pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
 
 pub fn init_config(overrides: &PathOverrides) -> Result<(), ConfigError> {
     let mut path = resolve_config_path(overrides)?;
-    dbg!(&path);
     if !fs::exists(&path).map_err(ConfigError::Io)? {
         fs::create_dir_all(&path).map_err(ConfigError::Io)?;
     }
