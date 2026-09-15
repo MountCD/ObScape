@@ -63,8 +63,7 @@ pub async fn make_request_with(
     http: &Client,
     cfg: &Config,
     agent: &AgentConfig,
-    history: &mut Vec<JsonMessageContent>,
-    message: String,
+    history: &[JsonMessageContent],
 ) -> Result<String, AgentError> {
     crate::vlog!(
         cfg,
@@ -73,13 +72,8 @@ pub async fn make_request_with(
         agent.api_url
     );
 
-    // Дополним историю пользовательским сообщением.
-    let now = crate::time::now_iso();
-    history.push(JsonMessageContent::new(
-        Roles::User,
-        ContentStruc::new(now, 0, 0, message),
-    ));
-
+    // История передаётся как есть: сообщение пользователя должно быть
+    // уже добавлено в неё вызывающей стороной.
     let wire_history: Vec<LlmMessage> = history.iter().map(LlmMessage::from).collect();
     let json_message = JsonRequestMessage::new(agent.model_id.clone(), wire_history, false);
     let req = json!(json_message);
@@ -111,7 +105,12 @@ pub async fn make_request(
     let agent = resolve_agent(&cfg, &kind)?;
     let db = Database::open_db(&cfg.database_url).await?;
     let mut history = db.export_messages().await?;
-    let reply = make_request_with(client, &cfg, &agent, &mut history, message).await?;
+    let now = crate::time::now_iso();
+    history.push(JsonMessageContent::new(
+        Roles::User,
+        ContentStruc::new(now, 0, 0, message),
+    ));
+    let reply = make_request_with(client, &cfg, &agent, &history).await?;
     Ok(reply)
 }
 

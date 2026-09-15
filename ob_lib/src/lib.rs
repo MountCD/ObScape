@@ -103,8 +103,8 @@ impl Assistant {
 
         // 2. Get history and call LLM
         let res_history = ob_common::vdbg!(&*self.cfg, self.db.export_chat(chat_id).await);
-        let mut history = res_history.map_err(ObScapeError::Db)?;
-        let reply = agent::make_request_with(&self.http, &self.cfg, &a_cfg, &mut history, message)
+        let history = res_history.map_err(ObScapeError::Db)?;
+        let reply = agent::make_request_with(&self.http, &self.cfg, &a_cfg, &history)
             .await
             .map_err(ObScapeError::Llm)?;
 
