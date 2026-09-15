@@ -1,3 +1,6 @@
 /target
 .git/
 .github/
+# реальный конфиг монтируется в рантайме; в образ (и в build-context) попадать не должен
+config.toml
+.config/
