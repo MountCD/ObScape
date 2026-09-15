@@ -81,6 +81,14 @@ pub async fn make_request_with(
     let mut req = http.post(agent.api_url.clone()).json(&req);
     req = req.bearer_auth(agent.api_key.clone());
     let response = req.send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        // Тело может содержать фрагменты запроса — наружу отдаём только
+        // статус, а тело только в verbose-лог.
+        let body = response.text().await.unwrap_or_default();
+        crate::vlog!(cfg, "upstream returned {status}: {body}");
+        return Err(AgentError::Other(format!("upstream returned {status}")));
+    }
     let response = response.json::<Value>().await?;
 
     let content = response["choices"][0]["message"]["content"]
