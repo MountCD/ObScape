@@ -81,8 +81,12 @@ impl Assistant {
             "processing message for user {user_id}, chat {chat_id}"
         );
 
-        // 0. Агент, закреплённый за чатом.
-        let res_agent = ob_common::vdbg!(&*self.cfg, self.db.chat_agent(chat_id).await);
+        // 0. Агент, закреплённый за чатом. Заодно проверяем, что чат
+        //    принадлежит этому пользователю.
+        let res_agent = ob_common::vdbg!(
+            &*self.cfg,
+            self.db.chat_agent_for_user(chat_id, user_id).await
+        );
         let agent = res_agent
             .map_err(ObScapeError::Db)?
             .ok_or_else(|| ObScapeError::BadRequest(format!("unknown chat_id: {chat_id}")))?;
