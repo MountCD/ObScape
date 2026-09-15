@@ -77,7 +77,9 @@ pub async fn make_request_with(
     let req = json!(json_message);
 
     let mut req = http.post(agent.api_url.clone()).json(&req);
-    req = req.bearer_auth(agent.api_key.clone());
+    req = req
+        .bearer_auth(agent.api_key.clone())
+        .timeout(std::time::Duration::from_secs(agent.timeout_secs));
     let response = req.send().await?;
     let status = response.status();
     if !status.is_success() {

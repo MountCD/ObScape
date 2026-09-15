@@ -11,6 +11,17 @@ pub struct AgentConfig {
     pub api_url: String,
     pub api_key: String,
     pub personality_prompt: String,
+    /// Таймаут одного запроса к апстриму в секундах (разным моделям
+    /// нужно разное время). Дефолт — `DEFAULT_TIMEOUT_SECS`.
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+/// Дефолт для `timeout_secs`, если поле не задано в config.toml.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 120;
+
+fn default_timeout_secs() -> u64 {
+    DEFAULT_TIMEOUT_SECS
 }
 impl AgentConfig {
     pub fn merge_config(&self, shared: &str) -> String {
@@ -334,6 +345,8 @@ model_id = "Gemma4-E2B"
 api_url = "https://example.com/v1/"
 api_key = "abc123"
 personality_prompt = "Your name is Paul. You must write using only low letters."
+# Таймаут запроса к модели в секундах.
+timeout_secs = 120
         "#;
 
     file.write_all(template.as_bytes())

@@ -22,10 +22,19 @@ pub struct Assistant {
 
 impl Assistant {
     pub fn new(db: Database, cfg: Config) -> Self {
+        // Общий таймаут запроса задаётся per-agent в `make_request_with`;
+        // здесь — страховочный дефолт и таймаут на установку соединения.
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(
+                ob_common::config::DEFAULT_TIMEOUT_SECS,
+            ))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("failed to build HTTP client");
         Self {
             db: Arc::new(db),
             cfg: Arc::new(cfg),
-            http: Arc::new(reqwest::Client::new()),
+            http: Arc::new(http),
         }
     }
 
