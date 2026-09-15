@@ -145,6 +145,18 @@ pub struct PathOverrides {
     help: bool,
 }
 
+impl PathOverrides {
+    /// Запрошен ли `--help` / `-h`.
+    pub fn help(&self) -> bool {
+        self.help
+    }
+
+    /// Запрошен ли `--init`.
+    pub fn init(&self) -> bool {
+        self.init
+    }
+}
+
 /// Распечатать краткую справку по аргументам командной строки.
 pub fn print_help() {
     println!(
@@ -289,16 +301,6 @@ pub fn resolve_config_path(overrides: &PathOverrides) -> Result<String, ConfigEr
 pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
     let mut conf_path = resolve_config_path(overrides)?;
     conf_path = format_conf_path(conf_path);
-
-    if overrides.help {
-        print_help();
-        std::process::exit(0);
-    }
-
-    if overrides.init {
-        init_config(overrides)?;
-        std::process::exit(0);
-    }
 
     // 2. Читаем и парсим TOML.
     let contents = fs::read_to_string(&conf_path).map_err(ConfigError::Io)?;

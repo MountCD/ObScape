@@ -16,6 +16,20 @@ async fn main() {
         }
     };
 
+    // `--help` / `--init` обрабатываем до того, как трогать конфиг:
+    // справка не должна ничего создавать на диске.
+    if overrides.help() {
+        config::print_help();
+        return;
+    }
+    if overrides.init() {
+        if let Err(e) = config::init_config(&overrides) {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+        return;
+    }
+
     // Авто-инициализация, если конфиг не найден.
     let conf_path = match config::resolve_config_path(&overrides) {
         Ok(p) => p,
@@ -37,7 +51,7 @@ async fn main() {
             Ok(()) => eprintln!("Config template created. Edit it and start again."),
             Err(error) => {
                 eprintln!("error: {error}");
-                return;
+                std::process::exit(2);
             }
         }
     }
