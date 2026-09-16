@@ -65,6 +65,10 @@ async fn main() {
         Ok(c) => c,
         Err(code) => std::process::exit(code),
     };
+    if overrides.print_config() {
+        config::print_config(&cfg);
+        return;
+    }
 
     // Логирование HTTP-запросов (TraceLayer) — только в verbose-режиме.
     if cfg.verbose {
