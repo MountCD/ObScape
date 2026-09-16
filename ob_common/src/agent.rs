@@ -3,7 +3,7 @@ use crate::database::{JsonMessageContent, JsonRequestMessage, LlmMessage};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-/// Ошибки LLM-слоя. Используется как `AppError::Agent` в HTTP-ответах.
+/// Ошибки LLM-слоя. Наружу уходят как `ObScapeError::Llm` → HTTP 502.
 #[derive(Debug)]
 pub enum AgentError {
     /// Сетевая/HTTP-ошибка при обращении к апстриму.

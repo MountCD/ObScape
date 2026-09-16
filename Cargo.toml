@@ -16,6 +16,5 @@ http-body-util = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = "0.1"
 ob_common = { path = "ob_common" }
-ob_core = { path = "ob_core" }
 ob_lib = { path = "ob_lib" }
 dotenvy = "0.15"

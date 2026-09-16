@@ -12,13 +12,15 @@
 > Ensure what you have `docker` and `docker-compose`
 1. Clone this repo ```git clone https://github.com/mountcd/obscape```
 2. Put ready to use `config.toml` in project catalog (leave `api_key` empty)
-3. `cp .env.example .env` and fill in `POSTGRES_PASSWORD` and `OBSISTENT_AGENT_<NAME>_API_KEY`
+3. `cp .env.example .env` and fill in `POSTGRES_PASSWORD`, `OBSISTENT_API_TOKEN` and `OBSISTENT_AGENT_<NAME>_API_KEY`
 4. Build project with `docker compose build`
 5. Run project with `docker compose up`
 ## How to use it
-> GET .../v1/health - get status of the core,
+If `OBSISTENT_API_TOKEN` (or `api_token` in `config.toml`) is set, every `/v1/chat/*` request must carry `Authorization: Bearer <token>`. `/v1/health` is always open and returns `503` when the database is unreachable.
 
-> POST .../v1/chat/new - make a new chat
+> GET .../v1/health - get status of the core and its database
+
+> POST .../v1/chat/new - make a new chat (`agent` is optional: defaults to the agent with `main = true`)
 ```json
 {
   "user_id": 0,
