@@ -81,24 +81,18 @@ impl Assistant {
         // Проверяем агента до того, как что-либо записывать в БД.
         let a_cfg = agent::resolve_agent(&self.cfg, &agent).map_err(ObScapeError::Llm)?;
 
+        // Чат и его системный промпт (shared + personality) создаются
+        // одной транзакцией.
         let now = now_iso();
-        let res_chat =
-            ob_common::vdbg!(&*self.cfg, self.db.create_chat(user_id, &agent, &now).await);
-        let chat_id = res_chat.map_err(ObScapeError::Db)?;
-        vlog!(&*self.cfg, "chat {chat_id} created for agent `{agent}`");
-
-        // Системный промпт пишется один раз, при создании чата.
         let sys_prompt = a_cfg.merge_config(&self.cfg.shared_prompt);
-        let res_sys = ob_common::vdbg!(
+        let res_chat = ob_common::vdbg!(
             &*self.cfg,
             self.db
-                .add_message(JsonMessageContent::new(
-                    Roles::System,
-                    ContentStruc::new(now, chat_id, user_id, sys_prompt),
-                ))
+                .create_chat(user_id, &agent, &now, &sys_prompt)
                 .await
         );
-        res_sys.map_err(ObScapeError::Db)?;
+        let chat_id = res_chat.map_err(ObScapeError::Db)?;
+        vlog!(&*self.cfg, "chat {chat_id} created for agent `{agent}`");
 
         let reply = self.send_message(user_id, chat_id, message).await?;
         Ok((chat_id, reply))
@@ -139,19 +133,23 @@ impl Assistant {
                 ))
                 .await
         );
-        res_save.map_err(ObScapeError::Db)?;
+        let user_msg_id = res_save.map_err(ObScapeError::Db)?;
 
-        // 2. Get history and call LLM
-        let res_history = ob_common::vdbg!(
-            &*self.cfg,
-            self.db
-                .export_chat_recent(chat_id, self.cfg.history_limit)
-                .await
-        );
-        let history = res_history.map_err(ObScapeError::Db)?;
-        let reply = agent::make_request_with(&self.http, &self.cfg, &a_cfg, &history)
-            .await
-            .map_err(ObScapeError::Llm)?;
+        // 2. Get history and call LLM. Если модель не ответила — убираем
+        //    только что сохранённую реплику, чтобы повтор запроса не дал
+        //    двух `user` подряд в истории.
+        let reply = match self.request_reply(chat_id, &a_cfg).await {
+            Ok(r) => r,
+            Err(e) => {
+                if let Err(del) = self.db.delete_message(user_msg_id).await {
+                    vlog!(
+                        &*self.cfg,
+                        "failed to roll back user message {user_msg_id}: {del}"
+                    );
+                }
+                return Err(e);
+            }
+        };
 
         // 3. Save assistant reply
         let reply_time = now_iso();
@@ -167,5 +165,24 @@ impl Assistant {
         res_reply.map_err(ObScapeError::Db)?;
 
         Ok(reply)
+    }
+
+    /// История чата → апстрим. Вынесено, чтобы `send_message` мог
+    /// откатить реплику пользователя при любой ошибке этого шага.
+    async fn request_reply(
+        &self,
+        chat_id: i64,
+        a_cfg: &ob_common::config::AgentConfig,
+    ) -> Result<String, ObScapeError> {
+        let res_history = ob_common::vdbg!(
+            &*self.cfg,
+            self.db
+                .export_chat_recent(chat_id, self.cfg.history_limit)
+                .await
+        );
+        let history = res_history.map_err(ObScapeError::Db)?;
+        agent::make_request_with(&self.http, &self.cfg, a_cfg, &history)
+            .await
+            .map_err(ObScapeError::Llm)
     }
 }
