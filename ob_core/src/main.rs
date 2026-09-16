@@ -70,16 +70,20 @@ async fn main() {
         return;
     }
 
-    // Логирование HTTP-запросов (TraceLayer) — только в verbose-режиме.
-    if cfg.verbose {
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "tower_http=debug".into()),
-            )
-            .with_writer(std::io::stderr)
-            .init();
-    }
+    // Логи в stderr всегда: ошибки и 5xx — на info, в verbose — каждый
+    // запрос (tower_http=debug). RUST_LOG переопределяет фильтр целиком.
+    let default_filter = if cfg.verbose {
+        "info,tower_http=debug"
+    } else {
+        "info"
+    };
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| default_filter.into()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
 
     // 2. Открываем БД (создаём таблицу при первом запуске).
     ob_common::vlog!(
@@ -99,7 +103,14 @@ async fn main() {
     let bind_addr = cfg
         .http_bind
         .clone()
-        .unwrap_or_else(|| "0.0.0.0:11080".to_string());
+        .unwrap_or_else(|| config::DEFAULT_HTTP_BIND.to_string());
+    if cfg.api_token.is_none() && !is_loopback(&bind_addr) {
+        tracing::warn!(
+            "api_token is not set and the server listens on {bind_addr}: \
+             /v1/chat/* is open to anyone who can reach it (set {})",
+            config::ENV_API_TOKEN
+        );
+    }
     let state = server::AppState::new(db, cfg);
 
     println!("obscape: listening on http://{bind_addr}");
@@ -150,4 +161,12 @@ async fn shutdown_signal() {
     }
 
     eprintln!("shutdown signal received, draining connections...");
+}
+
+/// `127.0.0.1:*` / `localhost:*` / `[::1]:*` — адрес, на который снаружи
+/// не попасть; для него отсутствие `api_token` не считается проблемой.
+fn is_loopback(bind: &str) -> bool {
+    bind.parse::<std::net::SocketAddr>()
+        .map(|a| a.ip().is_loopback())
+        .unwrap_or_else(|_| bind.starts_with("localhost:"))
 }

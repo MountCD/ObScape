@@ -54,6 +54,11 @@ pub struct Config {
     /// отправлять модели. Ограничивает рост запроса на длинных чатах.
     #[serde(default = "default_history_limit")]
     pub history_limit: u32,
+    /// Bearer-токен для `/v1/chat/*`. `None` — без аутентификации
+    /// (только для локальной разработки). Env `OBSISTENT_API_TOKEN`
+    /// имеет приоритет.
+    #[serde(default)]
+    pub api_token: Option<String>,
     pub agents: std::collections::HashMap<String, AgentConfig>,
 }
 
@@ -125,11 +130,13 @@ pub fn format_conf_path(path: String) -> String {
 }
 
 /// Дефолтный адрес HTTP-сервера.
-const DEFAULT_HTTP_BIND: &str = "0.0.0.0:11080";
+pub const DEFAULT_HTTP_BIND: &str = "0.0.0.0:11080";
 
 /// Переменные окружения, которые читаются как fallback.
 const ENV_CONFIG: &str = "OBSISTENT_CONFIG";
 const ENV_DATABASE: &str = "OBSISTENT_DATABASE";
+/// Bearer-токен для HTTP API (см. `Config::api_token`).
+pub const ENV_API_TOKEN: &str = "OBSISTENT_API_TOKEN";
 
 /// Имя переменной окружения с ключом апстрима для агента `name`:
 /// `OBSISTENT_AGENT_<NAME>_API_KEY`, где имя приводится к верхнему регистру,
@@ -204,11 +211,13 @@ pub fn print_help() {
           Environment variables:\n  \
               {ENV_CONFIG}            Same as --config\n  \
               {ENV_DATABASE}          Same as --database\n  \
-              OBSISTENT_AGENT_<NAME>_API_KEY  api_key for agent <NAME> (overrides config.toml)\n\n\
+              OBSISTENT_AGENT_<NAME>_API_KEY  api_key for agent <NAME> (overrides config.toml)\n  \
+              {ENV_API_TOKEN}          Bearer token clients must send to /v1/chat/* (overrides api_token)\n\n\
           A .env file in the current directory is loaded on start (existing variables win).\n",
         DEFAULT = make_file_path().unwrap_or_else(|_| "~/.config/obscape/config.toml".to_string()),
         ENV_CONFIG = ENV_CONFIG,
         ENV_DATABASE = ENV_DATABASE,
+        ENV_API_TOKEN = ENV_API_TOKEN,
     );
 }
 
@@ -389,6 +398,19 @@ pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
 /// Применить `OBSISTENT_AGENT_*_API_KEY` и проверить конфиг на противоречия.
 /// Вынесено из `load_config`, чтобы тестировать без файлов.
 fn validate_config(config: &mut Config) -> Result<(), ConfigError> {
+    // Токен API: env > TOML; пустая строка = не задан.
+    if let Ok(v) = env::var(ENV_API_TOKEN)
+        && !v.is_empty()
+    {
+        config.api_token = Some(v);
+    }
+    if config
+        .api_token
+        .as_deref()
+        .is_some_and(|t| t.trim().is_empty())
+    {
+        config.api_token = None;
+    }
     // Ключи агентов: env > TOML. Для включённых агентов проверяем
     //    ключ, URL и модель — выключенные могут быть заполнены как угодно.
     for (name, agent) in config.agents.iter_mut() {
@@ -474,6 +496,9 @@ verbose = false
 shared_prompt = "You are a helpful assistant. Say hello to user."
 # Сколько последних сообщений чата отправлять модели (системный промпт не считается).
 history_limit = 50
+# Bearer-токен, который клиенты должны присылать в Authorization для /v1/chat/*.
+# Лучше задавать через OBSISTENT_API_TOKEN (в .env). Без токена API открыт — только для локальной отладки.
+# api_token = ""
 
 [agents.primary]
 enabled = true
@@ -524,6 +549,14 @@ pub fn print_config(config: &Config) {
     );
     println!("verbose       = {}", config.verbose);
     println!("history_limit = {}", config.history_limit);
+    println!(
+        "api_token     = {}",
+        if config.api_token.is_some() {
+            "(set)"
+        } else {
+            "(none: /v1/chat/* is unauthenticated)"
+        }
+    );
     println!("shared_prompt = {}", config.shared_prompt);
     println!("enabled agents = {:#?}", agents_list);
     println!(
@@ -587,6 +620,7 @@ mod tests {
             verbose: false,
             shared_prompt: String::new(),
             history_limit: 50,
+            api_token: None,
             agents: agents
                 .into_iter()
                 .map(|(n, a)| (n.to_string(), a))
