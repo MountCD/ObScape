@@ -7,8 +7,41 @@ pub mod server;
 
 #[tokio::main]
 async fn main() {
-    // 0. Авто-инициализация, если конфиг не найден.
-    let conf_path = config::resolve_config_path().unwrap();
+    // .env из текущей директории (если есть). Уже заданные переменные
+    // окружения имеют приоритет — dotenvy их не перезаписывает.
+    let _ = dotenvy::dotenv();
+
+    // 0. Разбираем аргументы и ENV один раз.
+    let overrides = match config::parse_cli() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+    };
+
+    // `--help` / `--init` обрабатываем до того, как трогать конфиг:
+    // справка не должна ничего создавать на диске.
+    if overrides.help() {
+        config::print_help();
+        return;
+    }
+    if overrides.init() {
+        if let Err(e) = config::init_config(&overrides) {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+        return;
+    }
+
+    // Авто-инициализация, если конфиг не найден.
+    let conf_path = match config::resolve_config_path(&overrides) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+    };
     let path = format_conf_path(conf_path);
     if !std::path::Path::new(&path).exists() {
         if config::is_containerized() {
@@ -18,23 +51,46 @@ async fn main() {
             std::process::exit(2);
         }
         eprintln!("Config file is not found. Creating new...");
-        match config::init_config() {
+        match config::init_config(&overrides) {
             Ok(()) => eprintln!("Config template created. Edit it and start again."),
             Err(error) => {
                 eprintln!("error: {error}");
-                return;
+                std::process::exit(2);
             }
         }
     }
 
     // 1. Проверяем итоговый конфиг на ошибки.
-    let cfg = match config::dispatch_cli() {
+    let cfg = match config::dispatch_cli(&overrides) {
         Ok(c) => c,
         Err(code) => std::process::exit(code),
     };
+    if overrides.print_config() {
+        config::print_config(&cfg);
+        return;
+    }
+
+    // Логи в stderr всегда: ошибки и 5xx — на info, в verbose — каждый
+    // запрос (tower_http=debug). RUST_LOG переопределяет фильтр целиком.
+    let default_filter = if cfg.verbose {
+        "info,tower_http=debug"
+    } else {
+        "info"
+    };
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| default_filter.into()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
 
     // 2. Открываем БД (создаём таблицу при первом запуске).
-    ob_common::vlog!(&cfg, "connecting to database: {}", cfg.database_url);
+    ob_common::vlog!(
+        &cfg,
+        "connecting to database: {}",
+        config::mask_db_password(&cfg.database_url)
+    );
     let db = match database::Database::open_db(&cfg.database_url).await {
         Ok(d) => d,
         Err(e) => {
@@ -47,7 +103,14 @@ async fn main() {
     let bind_addr = cfg
         .http_bind
         .clone()
-        .unwrap_or_else(|| "0.0.0.0:11080".to_string());
+        .unwrap_or_else(|| config::DEFAULT_HTTP_BIND.to_string());
+    if cfg.api_token.is_none() && !is_loopback(&bind_addr) {
+        tracing::warn!(
+            "api_token is not set and the server listens on {bind_addr}: \
+             /v1/chat/* is open to anyone who can reach it (set {})",
+            config::ENV_API_TOKEN
+        );
+    }
     let state = server::AppState::new(db, cfg);
 
     println!("obscape: listening on http://{bind_addr}");
@@ -64,7 +127,6 @@ async fn main() {
         }
     };
 
-    // main.rs, вместо axum::serve(listener, app).await
     if let Err(e) = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
@@ -72,30 +134,39 @@ async fn main() {
         eprintln!("server exited with an error: {e}");
         std::process::exit(5);
     }
-    /// Ждёт SIGINT (Ctrl+C) или SIGTERM (docker stop) для мягкой остановки.
-    async fn shutdown_signal() {
-        let ctrl_c = async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install SIGINT handler");
-        };
+}
 
-        #[cfg(unix)]
-        let terminate = async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
+/// Ждёт SIGINT (Ctrl+C) или SIGTERM (docker stop) для мягкой остановки.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install SIGINT handler");
+    };
 
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
 
-        tokio::select! {
-            _ = ctrl_c => {}
-            _ = terminate => {}
-        }
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
 
-        eprintln!("shutdown signal received, draining connections...");
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
     }
+
+    eprintln!("shutdown signal received, draining connections...");
+}
+
+/// `127.0.0.1:*` / `localhost:*` / `[::1]:*` — адрес, на который снаружи
+/// не попасть; для него отсутствие `api_token` не считается проблемой.
+fn is_loopback(bind: &str) -> bool {
+    bind.parse::<std::net::SocketAddr>()
+        .map(|a| a.ip().is_loopback())
+        .unwrap_or_else(|_| bind.starts_with("localhost:"))
 }

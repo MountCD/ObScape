@@ -40,8 +40,8 @@ pub struct LlmMessage {
 impl From<&JsonMessageContent> for LlmMessage {
     fn from(message: &JsonMessageContent) -> Self {
         LlmMessage {
-            role: (message.role.clone()),
-            content: (message.content.message.clone()),
+            role: message.role.clone(),
+            content: message.content.message.clone(),
         }
     }
 }
@@ -103,11 +103,19 @@ pub struct Database {
 }
 
 impl Database {
+    /// Открыть пул без подключения и без создания таблиц — соединение
+    /// устанавливается при первом запросе. Нужно для тестов хэндлеров,
+    /// которые не доходят до БД; для сервера используйте `open_db`.
+    pub fn connect_lazy(url: &str) -> Result<Self, sqlx::Error> {
+        let pool = PgPoolOptions::new().max_connections(1).connect_lazy(url)?;
+        Ok(Database { pool })
+    }
+
     /// Открыть (создать) базу сообщений по строке подключения.
     ///
     /// `url` — обычный Postgres URL, например:
-    /// `postgres://user:pass@localhost:5432/obsistent`.
-    /// Таблица `messages` создаётся автоматически, если её ещё нет.
+    /// `postgres://user:pass@localhost:5432/obscape`.
+    /// Таблицы `messages` и `chats` создаются автоматически, если их ещё нет.
     pub async fn open_db(url: &str) -> Result<Self, sqlx::Error> {
         let pool = PgPoolOptions::new().max_connections(8).connect(url).await?;
 
@@ -154,27 +162,6 @@ impl Database {
         Ok(Database { pool })
     }
 
-    /// В прежней версии сбрасывал JSON-файл. В Postgres это не нужно —
-    /// оставлено как no-op для совместимости по сигнатуре.
-    pub async fn write_db(&self) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
-    /// Прочитать все сообщения из БД, упорядоченные по `chat_id` и `time`.
-    pub async fn export_messages(&self) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, MessageRow>(
-            r#"
-            SELECT "time", chat_id, user_id, role, message
-            FROM messages
-            ORDER BY chat_id ASC, "time" ASC, id ASC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        rows.into_iter().map(MessageRow::into_message).collect()
-    }
-
     /// Прочитать сообщения конкретного чата.
     pub async fn export_chat(&self, chat_id: i64) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
@@ -192,12 +179,49 @@ impl Database {
         rows.into_iter().map(MessageRow::into_message).collect()
     }
 
-    /// Добавить одно сообщение.
-    pub async fn add_message(&self, message: JsonMessageContent) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    /// Прочитать системные сообщения чата плюс последние `limit` обычных —
+    /// то, что реально уходит модели. Порядок хронологический.
+    pub async fn export_chat_recent(
+        &self,
+        chat_id: i64,
+        limit: u32,
+    ) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, MessageRow>(
+            r#"
+            SELECT "time", chat_id, user_id, role, message
+            FROM (
+                SELECT id, "time", chat_id, user_id, role, message
+                FROM messages
+                WHERE chat_id = $1 AND role = 'system'
+                UNION ALL
+                SELECT id, "time", chat_id, user_id, role, message
+                FROM (
+                    SELECT id, "time", chat_id, user_id, role, message
+                    FROM messages
+                    WHERE chat_id = $1 AND role <> 'system'
+                    ORDER BY "time" DESC, id DESC
+                    LIMIT $2
+                ) AS recent
+            ) AS selected
+            ORDER BY "time" ASC, id ASC
+            "#,
+        )
+        .bind(chat_id)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(MessageRow::into_message).collect()
+    }
+
+    /// Добавить одно сообщение. Возвращает `id` строки — по нему сообщение
+    /// можно откатить через [`Database::delete_message`].
+    pub async fn add_message(&self, message: JsonMessageContent) -> Result<i64, sqlx::Error> {
+        let row: (i64,) = sqlx::query_as(
             r#"
             INSERT INTO messages ("time", chat_id, user_id, role, message)
             VALUES ($1, $2, $3, $4, $5)
+            RETURNING id
             "#,
         )
         .bind(message.content.time.as_str())
@@ -205,37 +229,24 @@ impl Database {
         .bind(message.content.user_id)
         .bind(message.role.as_str())
         .bind(message.content.message.as_str())
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
-        Ok(())
+        Ok(row.0)
     }
 
-    /// Пакетная вставка сообщений одной транзакцией.
-    pub async fn add_messages(&self, messages: &[JsonMessageContent]) -> Result<(), sqlx::Error> {
-        if messages.is_empty() {
-            return Ok(());
-        }
-        let mut tx = self.pool.begin().await?;
-        for m in messages {
-            sqlx::query(
-                r#"
-                INSERT INTO messages ("time", chat_id, user_id, role, message)
-                VALUES ($1, $2, $3, $4, $5)
-                "#,
-            )
-            .bind(m.content.time.as_str())
-            .bind(m.content.chat_id)
-            .bind(m.content.user_id)
-            .bind(m.role.as_str())
-            .bind(m.content.message.as_str())
-            .execute(&mut *tx)
+    /// Удалить сообщение по `id`. Используется как компенсация: если
+    /// апстрим не ответил, реплика пользователя не должна оставаться в
+    /// истории (иначе в контексте появятся два `user` подряд).
+    pub async fn delete_message(&self, id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query(r#"DELETE FROM messages WHERE id = $1"#)
+            .bind(id)
+            .execute(&self.pool)
             .await?;
-        }
-        tx.commit().await?;
         Ok(())
     }
 
-    /// Создать новый чат и закрепить за ним агента.
+    /// Создать новый чат, закрепить за ним агента и записать системный
+    /// промпт — одной транзакцией, чтобы не оставалось чатов без промпта.
     ///
     /// Возвращает выданный `chat_id`. Имя агента после этого меняться не может —
     /// все последующие сообщения чата обслуживает именно он.
@@ -244,7 +255,9 @@ impl Database {
         user_id: i64,
         agent: &str,
         created_at: &str,
+        system_prompt: &str,
     ) -> Result<i64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
         let row: (i64,) = sqlx::query_as(
             r#"
             INSERT INTO chats (user_id, agent, created_at)
@@ -255,24 +268,46 @@ impl Database {
         .bind(user_id)
         .bind(agent)
         .bind(created_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
-        Ok(row.0)
+        let chat_id = row.0;
+        sqlx::query(
+            r#"
+            INSERT INTO messages ("time", chat_id, user_id, role, message)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(created_at)
+        .bind(chat_id)
+        .bind(user_id)
+        .bind(Roles::System.as_str())
+        .bind(system_prompt)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(chat_id)
     }
 
-    /// Имя агента, закреплённого за чатом. `None` — чата не существует.
-    pub async fn chat_agent(&self, chat_id: i64) -> Result<Option<String>, sqlx::Error> {
+    /// Имя агента, закреплённого за чатом. `None` — чата не существует
+    /// или он принадлежит другому пользователю (наружу это не различается).
+    pub async fn chat_agent_for_user(
+        &self,
+        chat_id: i64,
+        user_id: i64,
+    ) -> Result<Option<String>, sqlx::Error> {
         let row: Option<(String,)> =
-            sqlx::query_as(r#"SELECT agent FROM chats WHERE chat_id = $1"#)
+            sqlx::query_as(r#"SELECT agent FROM chats WHERE chat_id = $1 AND user_id = $2"#)
                 .bind(chat_id)
+                .bind(user_id)
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|r| r.0))
     }
 
-    /// Доступ к пулу — для случаев, когда нужны произвольные запросы.
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
+    /// Проверка живости БД для `/v1/health`.
+    pub async fn ping(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
     }
 }
 
@@ -299,5 +334,31 @@ impl MessageRow {
                 message: self.message,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Roles;
+
+    #[test]
+    fn role_round_trip() {
+        for role in [Roles::System, Roles::User, Roles::Assistant] {
+            let back = Roles::role_from_str(role.as_str()).unwrap();
+            assert_eq!(back.as_str(), role.as_str());
+        }
+    }
+
+    #[test]
+    fn unknown_role_is_rejected() {
+        assert!(Roles::role_from_str("tool").is_err());
+    }
+
+    #[test]
+    fn role_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&Roles::Assistant).unwrap(),
+            "\"assistant\""
+        );
     }
 }

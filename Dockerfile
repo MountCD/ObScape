@@ -13,13 +13,17 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release -p ob_core
+RUN cargo build --release --locked -p ob_core
 
 # ---- runtime stage ----
 FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --no-create-home --shell /usr/sbin/nologin obscape
 COPY --from=builder /app/target/release/ob_core /usr/local/bin/ob_core
 
-ENV OBSISTENT_CONFIG_DIR=/etc/obscape/config.toml
+# Код читает OBSISTENT_CONFIG — это ДИРЕКТОРИЯ с config.toml (см. CLAUDE.md).
+ENV OBSISTENT_CONFIG=/etc/obscape
+USER obscape
 EXPOSE 11080
 ENTRYPOINT ["/usr/local/bin/ob_core"]

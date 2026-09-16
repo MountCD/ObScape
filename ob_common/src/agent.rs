@@ -1,11 +1,9 @@
-use crate::config::{self, AgentConfig, Config};
-use crate::database::{
-    ContentStruc, Database, JsonMessageContent, JsonRequestMessage, LlmMessage, Roles,
-};
+use crate::config::{AgentConfig, Config};
+use crate::database::{JsonMessageContent, JsonRequestMessage, LlmMessage};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-/// Ошибки LLM-слоя. Используется как `AppError::Agent` в HTTP-ответах.
+/// Ошибки LLM-слоя. Наружу уходят как `ObScapeError::Llm` → HTTP 502.
 #[derive(Debug)]
 pub enum AgentError {
     /// Сетевая/HTTP-ошибка при обращении к апстриму.
@@ -63,8 +61,7 @@ pub async fn make_request_with(
     http: &Client,
     cfg: &Config,
     agent: &AgentConfig,
-    history: &mut Vec<JsonMessageContent>,
-    message: String,
+    history: &[JsonMessageContent],
 ) -> Result<String, AgentError> {
     crate::vlog!(
         cfg,
@@ -73,20 +70,25 @@ pub async fn make_request_with(
         agent.api_url
     );
 
-    // Дополним историю пользовательским сообщением.
-    let now = crate::time::now_iso();
-    history.push(JsonMessageContent::new(
-        Roles::User,
-        ContentStruc::new(now, 0, 0, message),
-    ));
-
+    // История передаётся как есть: сообщение пользователя должно быть
+    // уже добавлено в неё вызывающей стороной.
     let wire_history: Vec<LlmMessage> = history.iter().map(LlmMessage::from).collect();
     let json_message = JsonRequestMessage::new(agent.model_id.clone(), wire_history, false);
     let req = json!(json_message);
 
     let mut req = http.post(agent.api_url.clone()).json(&req);
-    req = req.bearer_auth(agent.api_key.clone());
+    req = req
+        .bearer_auth(agent.api_key.clone())
+        .timeout(std::time::Duration::from_secs(agent.timeout_secs));
     let response = req.send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        // Тело может содержать фрагменты запроса — наружу отдаём только
+        // статус, а тело только в verbose-лог.
+        let body = response.text().await.unwrap_or_default();
+        crate::vlog!(cfg, "upstream returned {status}: {body}");
+        return Err(AgentError::Other(format!("upstream returned {status}")));
+    }
     let response = response.json::<Value>().await?;
 
     let content = response["choices"][0]["message"]["content"]
@@ -97,22 +99,6 @@ pub async fn make_request_with(
     crate::vlog!(cfg, "LLM response received: {} chars", content.len());
 
     Ok(content)
-}
-
-/// Старый API, оставлен ради существующих вызовов (например, тестов).
-/// Открывает конфиг и БД самостоятельно — удобно для одноразовых
-/// CLI-вызовов, но в HTTP-сервере лучше использовать `make_request_with`.
-pub async fn make_request(
-    client: &Client,
-    message: String,
-    kind: String,
-) -> anyhow::Result<String> {
-    let cfg = config::load_config()?;
-    let agent = resolve_agent(&cfg, &kind)?;
-    let db = Database::open_db(&cfg.database_url).await?;
-    let mut history = db.export_messages().await?;
-    let reply = make_request_with(client, &cfg, &agent, &mut history, message).await?;
-    Ok(reply)
 }
 
 /// Найти агента по ключу из `config.agents` и убедиться, что он включён.
