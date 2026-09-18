@@ -272,6 +272,7 @@ mod tests {
                 api_key: "k".into(),
                 personality_prompt: "p".into(),
                 timeout_secs: 5,
+                allowed_tool: Vec::new()
             },
         );
         Config {
@@ -283,6 +284,7 @@ mod tests {
             shared_prompt: "s".into(),
             history_limit: 50,
             api_token: None,
+            mcp_file: String::new(),
             agents,
         }
     }

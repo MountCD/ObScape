@@ -22,6 +22,8 @@ pub struct AgentConfig {
     /// нужно разное время). Дефолт — `DEFAULT_TIMEOUT_SECS`.
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    /// Список всех доступных для использования инструментов, описанных в mcp.json.
+    pub allowed_tool: Vec<String> // String на время, в будущем тут будет сам Tool.
 }
 
 /// Дефолт для `timeout_secs`, если поле не задано в config.toml.
@@ -59,6 +61,8 @@ pub struct Config {
     /// имеет приоритет.
     #[serde(default)]
     pub api_token: Option<String>,
+    /// Сюда указывается файл mcp.json, содержащий все доступные инструменты.
+    pub mcp_file: String,
     pub agents: std::collections::HashMap<String, AgentConfig>,
 }
 
@@ -609,6 +613,7 @@ mod tests {
             api_key: "k".into(),
             personality_prompt: "p".into(),
             timeout_secs: 10,
+            allowed_tool: Vec::new()
         }
     }
 
@@ -621,6 +626,7 @@ mod tests {
             shared_prompt: String::new(),
             history_limit: 50,
             api_token: None,
+            mcp_file: String::new(),
             agents: agents
                 .into_iter()
                 .map(|(n, a)| (n.to_string(), a))
