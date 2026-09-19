@@ -18,3 +18,4 @@ tracing = "0.1"
 ob_common = { path = "ob_common" }
 ob_lib = { path = "ob_lib" }
 dotenvy = "0.15"
+async-trait = "0.1.92"

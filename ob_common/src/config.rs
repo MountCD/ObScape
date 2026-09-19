@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -23,7 +24,13 @@ pub struct AgentConfig {
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
     /// Список всех доступных для использования инструментов, описанных в mcp.json.
-    pub allowed_tool: Vec<String> // String на время, в будущем тут будет сам Tool.
+    pub tools: HashMap<String, ToolRights> // String на время, в будущем тут будет сам Tool.
+}
+#[derive(Debug, Deserialize, Clone, Copy)]
+pub enum ToolRights {
+    Approve,
+    Ask,
+    Deny
 }
 
 /// Дефолт для `timeout_secs`, если поле не задано в config.toml.
@@ -63,7 +70,7 @@ pub struct Config {
     pub api_token: Option<String>,
     /// Сюда указывается файл mcp.json, содержащий все доступные инструменты.
     pub mcp_file: String,
-    pub agents: std::collections::HashMap<String, AgentConfig>,
+    pub agents: HashMap<String, AgentConfig>,
 }
 
 impl Config {
@@ -613,7 +620,7 @@ mod tests {
             api_key: "k".into(),
             personality_prompt: "p".into(),
             timeout_secs: 10,
-            allowed_tool: Vec::new()
+            tools: HashMap::new()
         }
     }
 

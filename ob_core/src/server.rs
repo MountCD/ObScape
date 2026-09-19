@@ -272,7 +272,7 @@ mod tests {
                 api_key: "k".into(),
                 personality_prompt: "p".into(),
                 timeout_secs: 5,
-                allowed_tool: Vec::new()
+                tools: HashMap::new()
             },
         );
         Config {

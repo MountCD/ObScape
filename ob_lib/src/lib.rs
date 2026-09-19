@@ -185,4 +185,12 @@ impl Assistant {
             .await
             .map_err(ObScapeError::Llm)
     }
+
+    pub fn check_tools_call() {
+        todo!()
+    }
+
+    async fn use_tool() {
+        todo!()
+    }
 }

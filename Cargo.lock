@@ -1141,6 +1141,7 @@ dependencies = [
 name = "ob_common"
 version = "0.0.5"
 dependencies = [
+ "async-trait",
  "reqwest",
  "serde",
  "serde_json",

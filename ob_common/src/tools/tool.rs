@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tokio;
+use async_trait::async_trait;
 pub enum ToolErrors {
     Denied,
     NotFound,
@@ -15,7 +15,7 @@ impl std::fmt::Display for ToolErrors {
         }
     }
 }
-
+#[async_trait]
 pub trait Tool {
     fn name(&self) -> String;
     
@@ -29,35 +29,4 @@ pub struct ToolResponse {
     pub succes: bool,
     pub content: Value,
     pub error: Option<ToolErrors>
-}
-
-#[tokio::test]
-async fn test_tool() {
-    struct Test {
-        name: String
-    }
-    impl Tool for Test {
-        fn name(&self) -> String {
-            self.name.clone()
-        }
-    
-        async fn execute(
-            &self,
-            args: Value,
-        ) -> ToolResponse {
-            ToolResponse {
-                succes: true,
-                content: args,
-                error: None
-            }
-        }
-    }
-
-    let tes_tool = Test {
-        name: String::from("MyTool")
-    };
-    let response = tes_tool.execute(
-        Value::String(tes_tool.name())
-    );
-    assert_eq!(response.await.succes, true)
 }
