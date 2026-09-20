@@ -1,5 +1,5 @@
 use crate::config::{AgentConfig, Config};
-use crate::database::{JsonMessageContent, JsonRequestMessage, LlmMessage};
+use crate::database::{JsonMessageContent, JsonRequestMessage, LlmMessage, ToolCall};
 use reqwest::Client;
 use serde_json::{Value, json};
 
@@ -54,6 +54,10 @@ impl From<serde_json::Error> for AgentError {
     }
 }
 
+pub enum LlmReply {
+    Text(String),
+    ToolCalls(Vec<ToolCall>)
+}
 /// Публичный API для сервера: вызвать LLM, передав уже открытые
 /// конфиг, http-клиент и историю диалога. Не открывает БД и не читает
 /// конфиг — всё передаётся снаружи.

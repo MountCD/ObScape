@@ -173,12 +173,14 @@ impl Database {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS messages (
-                id        BIGSERIAL PRIMARY KEY,
-                "time"    TEXT    NOT NULL,
-                chat_id   BIGINT  NOT NULL,
-                user_id   BIGINT  NOT NULL,
-                role      TEXT    NOT NULL,
-                message   TEXT    NOT NULL
+                id           BIGSERIAL PRIMARY KEY,
+                "time"       TEXT     NOT NULL,
+                chat_id      BIGINT   NOT NULL,
+                user_id      BIGINT   NOT NULL,
+                role         TEXT     NOT NULL,
+                message      TEXT    ,
+                tool_calls   TEXT    ,
+                tool_call_id TEXT    
             )
             "#,
         )
@@ -216,7 +218,7 @@ impl Database {
     pub async fn export_chat(&self, chat_id: i64) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
             r#"
-            SELECT "time", chat_id, user_id, role, message
+            SELECT "time", chat_id, user_id, role, message, tool_calls, tool_call_id
             FROM messages
             WHERE chat_id = $1
             ORDER BY "time" ASC, id ASC
@@ -238,15 +240,15 @@ impl Database {
     ) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
             r#"
-            SELECT "time", chat_id, user_id, role, message
+            SELECT "time", chat_id, user_id, role, message, tool_calls, tool_call_id
             FROM (
-                SELECT id, "time", chat_id, user_id, role, message
+                SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id
                 FROM messages
                 WHERE chat_id = $1 AND role = 'system'
                 UNION ALL
-                SELECT id, "time", chat_id, user_id, role, message
+                SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id
                 FROM (
-                    SELECT id, "time", chat_id, user_id, role, message
+                    SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id
                     FROM messages
                     WHERE chat_id = $1 AND role <> 'system'
                     ORDER BY "time" DESC, id DESC
@@ -267,10 +269,19 @@ impl Database {
     /// Добавить одно сообщение. Возвращает `id` строки — по нему сообщение
     /// можно откатить через [`Database::delete_message`].
     pub async fn add_message(&self, message: JsonMessageContent) -> Result<i64, sqlx::Error> {
+        let calls = message
+            .content
+            .tool_calls
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+        let text = (!message.content.message.is_empty()).then_some(message.content.message.as_str());
+
         let row: (i64,) = sqlx::query_as(
             r#"
-            INSERT INTO messages ("time", chat_id, user_id, role, message)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO messages ("time", chat_id, user_id, role, message, tool_calls, tool_call_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
             "#,
         )
@@ -278,11 +289,13 @@ impl Database {
         .bind(message.content.chat_id)
         .bind(message.content.user_id)
         .bind(message.role.as_str())
-        .bind(message.content.message.as_str())
+        .bind(text)
+        .bind(calls)
+        .bind(message.content.tool_call_id.as_deref())
         .fetch_one(&self.pool)
         .await?;
         Ok(row.0)
-    }
+}
 
     /// Удалить сообщение по `id`. Используется как компенсация: если
     /// апстрим не ответил, реплика пользователя не должна оставаться в
@@ -368,22 +381,30 @@ struct MessageRow {
     chat_id: i64,
     user_id: i64,
     role: String,
-    message: String,
+    message: Option<String>,
+    tool_calls: Option<String>,
+    tool_call_id: Option<String>,
 }
 
 impl MessageRow {
     fn into_message(self) -> Result<JsonMessageContent, sqlx::Error> {
         let role = Roles::role_from_str(&self.role)
             .map_err(|e| sqlx::Error::Protocol(format!("invalid role in DB row: {e}")))?;
+        let tool_calls = self
+            .tool_calls
+            .as_deref()
+            .map(serde_json::from_str::<Vec<ToolCall>>)
+            .transpose()
+            .map_err(|e| sqlx::Error::Protocol(format!("invalid tool_calls in DB row: {e}")))?;
         Ok(JsonMessageContent {
             role,
             content: ContentStruc {
                 time: self.time,
                 chat_id: self.chat_id,
                 user_id: self.user_id,
-                message: self.message,
-                tool_calls: None,
-                tool_call_id: None
+                message: self.message.unwrap_or_default(),
+                tool_calls,
+                tool_call_id: self.tool_call_id,
             },
         })
     }
@@ -395,7 +416,7 @@ mod tests {
 
     #[test]
     fn role_round_trip() {
-        for role in [Roles::System, Roles::User, Roles::Assistant] {
+        for role in [Roles::System, Roles::User, Roles::Assistant, Roles::Tool] {
             let back = Roles::role_from_str(role.as_str()).unwrap();
             assert_eq!(back.as_str(), role.as_str());
         }
@@ -403,7 +424,7 @@ mod tests {
 
     #[test]
     fn unknown_role_is_rejected() {
-        assert!(Roles::role_from_str("tool").is_err());
+        assert!(Roles::role_from_str("abcd123").is_err());
     }
 
     #[test]

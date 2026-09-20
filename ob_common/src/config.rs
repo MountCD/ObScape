@@ -510,6 +510,7 @@ history_limit = 50
 # Bearer-токен, который клиенты должны присылать в Authorization для /v1/chat/*.
 # Лучше задавать через OBSISTENT_API_TOKEN (в .env). Без токена API открыт — только для локальной отладки.
 # api_token = ""
+mcp_file = ./mcp/master.json
 
 [agents.primary]
 enabled = true
@@ -524,6 +525,7 @@ api_key = ""
 personality_prompt = "Your name is Paul. You must write using only low letters."
 # Таймаут запроса к модели в секундах.
 timeout_secs = 120
+tools = {}
         "#;
 
     file.write_all(template.as_bytes())
