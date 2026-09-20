@@ -2,6 +2,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
+use crate::tools::{executor::Executor, tool::Tool};
+
 /// Сообщение, хранимое в БД и используемое при формировании LLM-запроса.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -9,6 +11,7 @@ pub enum Roles {
     System,
     User,
     Assistant,
+    Tool
 }
 
 impl Roles {
@@ -18,6 +21,7 @@ impl Roles {
             Roles::System => "system",
             Roles::User => "user",
             Roles::Assistant => "assistant",
+            Roles::Tool => "tool"
         }
     }
 
@@ -27,21 +31,61 @@ impl Roles {
             "system" => Ok(Roles::System),
             "user" => Ok(Roles::User),
             "assistant" => Ok(Roles::Assistant),
+            "tool" => Ok(Roles::Tool),
             other => Err(format!("unknown role: {other}")),
         }
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String, // всегда "function"
+    pub function: FunctionCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String, // JSON внутри строки, как отдаёт API
+}
+
+
 #[derive(Debug, Serialize, Clone)]
 pub struct LlmMessage {
     pub role: Roles,
-    pub content: String,
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 impl From<&JsonMessageContent> for LlmMessage {
-    fn from(message: &JsonMessageContent) -> Self {
-        LlmMessage {
-            role: message.role.clone(),
-            content: message.content.message.clone(),
+    fn from(m: &JsonMessageContent) -> Self {
+        let c = &m.content;
+        match &m.role {
+            // ответ модели с запросом инструментов
+            Roles::Assistant if c.tool_calls.is_some() => LlmMessage {
+                role: Roles::Assistant,
+                content: (!c.message.is_empty()).then(|| c.message.clone()),
+                tool_calls: c.tool_calls.clone(),
+                tool_call_id: None,
+            },
+            // результат работы инструмента
+            Roles::Tool => LlmMessage {
+                role: Roles::Tool,
+                content: Some(c.message.clone()),
+                tool_calls: None,
+                tool_call_id: c.tool_call_id.clone(),
+            },
+            // обычные system / user / assistant
+            role => LlmMessage {
+                role: role.clone(),
+                content: Some(c.message.clone()),
+                tool_calls: None,
+                tool_call_id: None,
+            },
         }
     }
 }
@@ -69,6 +113,10 @@ pub struct ContentStruc {
     chat_id: i64,
     user_id: i64,
     message: String,
+    #[serde(default)]
+    tool_calls: Option<Vec<ToolCall>>,   // только у assistant
+    #[serde(default)]
+    tool_call_id: Option<String>,        // только у tool
 }
 
 impl ContentStruc {
@@ -78,6 +126,8 @@ impl ContentStruc {
             chat_id,
             user_id,
             message,
+            tool_calls: None,
+            tool_call_id: None
         }
     }
 }
@@ -332,6 +382,8 @@ impl MessageRow {
                 chat_id: self.chat_id,
                 user_id: self.user_id,
                 message: self.message,
+                tool_calls: None,
+                tool_call_id: None
             },
         })
     }
