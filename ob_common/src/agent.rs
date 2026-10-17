@@ -67,12 +67,6 @@ pub async fn make_request_with(
     agent: &AgentConfig,
     history: &[JsonMessageContent],
 ) -> Result<String, AgentError> {
-    crate::vlog!(
-        cfg,
-        "requesting LLM: {} at {}",
-        agent.model_id,
-        agent.api_url
-    );
 
     // История передаётся как есть: сообщение пользователя должно быть
     // уже добавлено в неё вызывающей стороной.
@@ -90,7 +84,6 @@ pub async fn make_request_with(
         // Тело может содержать фрагменты запроса — наружу отдаём только
         // статус, а тело только в verbose-лог.
         let body = response.text().await.unwrap_or_default();
-        crate::vlog!(cfg, "upstream returned {status}: {body}");
         return Err(AgentError::Other(format!("upstream returned {status}")));
     }
     let response = response.json::<Value>().await?;
@@ -99,8 +92,6 @@ pub async fn make_request_with(
         .as_str()
         .ok_or(AgentError::EmptyResponse)?
         .to_string();
-
-    crate::vlog!(cfg, "LLM response received: {} chars", content.len());
 
     Ok(content)
 }
