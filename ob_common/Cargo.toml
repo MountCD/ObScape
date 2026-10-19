@@ -11,3 +11,4 @@ toml.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
+ollama-rs.workspace = true

@@ -37,3 +37,61 @@ If `OBSISTENT_API_TOKEN` (or `api_token` in `config.toml`) is set, every `/v1/ch
   "message": "How are you?"
 }
 ```
+
+## Backends
+Each agent picks its backend with `backend` in its `config.toml` block:
+
+```toml
+# OpenAI-compatible API (default): api_url is the full chat-completions endpoint
+backend = "openai"
+api_url = "https://api.openai.com/v1/chat/completions"
+api_key = "..."        # or OBSISTENT_AGENT_<NAME>_API_KEY in .env
+
+# Local Ollama via ollama-rs: api_url is the server address, no key needed
+backend = "ollama"
+model_id = "llama3"
+api_url = "http://127.0.0.1:11434"
+api_key = ""
+```
+
+`timeout_secs` is per agent and applies to both backends.
+
+## Live config reload (Unix socket)
+The core keeps a Unix socket with `0600` rights — by default `~/.config/obscape/control.sock`, overridable with `control_socket` in `config.toml`. One JSON command per connection, one JSON line back:
+
+```text
+{"cmd":"ping"}                  -> {"ok":true,"service":"obscape"}
+{"cmd":"get"}                   -> {"ok":true,"config":"<TOML, secrets as ***>"}
+{"cmd":"reload"}                -> {"ok":true}   # re-read config.toml from disk
+{"cmd":"set","config":"<TOML>"} -> {"ok":true}   # write the file and apply it
+```
+
+`set` and `reload` apply without a restart (handlers pick up the new snapshot on the next request), roll the file back if anything fails, and refuse changes to `database_url` / `http_bind` / `control_socket` — those need a restart. A `get` config echoes back masked secrets and is rejected as-is.
+
+```bash
+python3 -c "
+import socket, os
+s = socket.socket(socket.AF_UNIX)
+s.connect(os.path.expanduser('~/.config/obscape/control.sock'))
+s.sendall(b'{\"cmd\":\"reload\"}\n'); print(s.recv(65536).decode())"
+```
+
+## Python client
+`python/` ships a small stdlib-only client for both the HTTP API and the control socket:
+
+```bash
+pip install ./python
+```
+```python
+from obscape import ObScapeClient, ConfigControl
+
+client = ObScapeClient("http://127.0.0.1:11080", token="...")
+print(client.health())
+chat = client.new_chat(user_id=1, message="Hello")
+
+control = ConfigControl()          # ~/.config/obscape/control.sock
+control.reload()
+print(control.get())               # current config, secrets masked
+```
+
+See `python/README.md` for details; `cd python && python3 -m unittest discover -v` runs its tests (no dependencies).

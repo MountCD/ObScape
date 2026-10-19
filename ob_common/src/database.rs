@@ -2,8 +2,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
-use crate::tools::{executor::Executor, tool::Tool};
-
 /// Сообщение, хранимое в БД и используемое при формировании LLM-запроса.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,7 +9,7 @@ pub enum Roles {
     System,
     User,
     Assistant,
-    Tool
+    Tool,
 }
 
 impl Roles {
@@ -21,7 +19,7 @@ impl Roles {
             Roles::System => "system",
             Roles::User => "user",
             Roles::Assistant => "assistant",
-            Roles::Tool => "tool"
+            Roles::Tool => "tool",
         }
     }
 
@@ -50,7 +48,6 @@ pub struct FunctionCall {
     pub name: String,
     pub arguments: String, // JSON внутри строки, как отдаёт API
 }
-
 
 #[derive(Debug, Serialize, Clone)]
 pub struct LlmMessage {
@@ -114,9 +111,9 @@ pub struct ContentStruc {
     user_id: i64,
     message: String,
     #[serde(default)]
-    tool_calls: Option<Vec<ToolCall>>,   // только у assistant
+    tool_calls: Option<Vec<ToolCall>>, // только у assistant
     #[serde(default)]
-    tool_call_id: Option<String>,        // только у tool
+    tool_call_id: Option<String>, // только у tool
 }
 
 impl ContentStruc {
@@ -127,7 +124,7 @@ impl ContentStruc {
             user_id,
             message,
             tool_calls: None,
-            tool_call_id: None
+            tool_call_id: None,
         }
     }
 }
@@ -276,7 +273,8 @@ impl Database {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-        let text = (!message.content.message.is_empty()).then_some(message.content.message.as_str());
+        let text =
+            (!message.content.message.is_empty()).then_some(message.content.message.as_str());
 
         let row: (i64,) = sqlx::query_as(
             r#"
@@ -295,7 +293,7 @@ impl Database {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.0)
-}
+    }
 
     /// Удалить сообщение по `id`. Используется как компенсация: если
     /// апстрим не ответил, реплика пользователя не должна оставаться в
