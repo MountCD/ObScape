@@ -20,7 +20,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - "./config.toml:/etc/obscape/config.toml:ro"
+      - "./config.toml:/home/obscape/config.toml:ro"
     # Пробрасывает OBSISTENT_AGENT_*_API_KEY и прочие OBSISTENT_* из .env.
     env_file:
       - path: .env
@@ -28,6 +28,12 @@ services:
     environment:
       # Переопределяет database_url из config.toml (CLI > ENV > TOML).
       OBSISTENT_DATABASE: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-obscape}
+    # На Linux даёт контейнеру имя host.docker.internal для хоста:
+    # api_url вида http://host.docker.internal:1234 достучится до
+    # локальной модели на хосте (127.0.0.1 из контейнера — это контейнер).
+    # Сам апстрим при этом должен слушать не только 127.0.0.1, а 0.0.0.0.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${OB_PORT:-11080}:11080"
     restart: unless-stopped

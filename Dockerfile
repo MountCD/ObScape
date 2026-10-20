@@ -17,13 +17,18 @@ RUN cargo build --release --locked -p ob_core
 
 # ---- runtime stage ----
 FROM debian:trixie-slim
+# /home/obscape — каталог конфига. Его обязан создать образ с владельцем
+# obscape: Docker при монтировании config.toml создаёт родительский каталог
+# от root (0755), и без этого права у процесса obscape не хватает на
+# control.sock — падение с exit 6 «failed to bind control socket ... Permission denied».
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --no-create-home --shell /usr/sbin/nologin obscape
+    && useradd --system --no-create-home --shell /usr/sbin/nologin obscape \
+    && install -d -o obscape -g obscape /home/obscape
 COPY --from=builder /app/target/release/ob_core /usr/local/bin/ob_core
 
 # Код читает OBSISTENT_CONFIG — это ДИРЕКТОРИЯ с config.toml (см. CLAUDE.md).
-ENV OBSISTENT_CONFIG=/etc/obscape
+ENV OBSISTENT_CONFIG=/home/obscape
 USER obscape
 EXPOSE 11080
 ENTRYPOINT ["/usr/local/bin/ob_core"]

@@ -15,6 +15,12 @@
 3. `cp .env.example .env` and fill in `POSTGRES_PASSWORD`, `OBSISTENT_API_TOKEN` and `OBSISTENT_AGENT_<NAME>_API_KEY`
 4. Build project with `docker compose build`
 5. Run project with `docker compose up`
+
+> If `docker ps` answers `permission denied while trying to connect to the docker API`, your user is in the `docker` group but the current session has no token for it — log in again (or use `newgrp docker` / `sudo docker`).
+
+Two access details worth knowing:
+- **Model on the host**: inside the container `127.0.0.1` is the container itself. Compose maps `host.docker.internal` for you, so use `api_url = "http://host.docker.internal:1234"` — and make the model server listen on `0.0.0.0`, not only `127.0.0.1`, or the connection will be refused at the host.
+- **Control socket**: it is created in the config directory (`/home/obscape/control.sock` in the container, `:rw` — only `config.toml` is mounted read-only). To reach it from the host, additionally mount a writable directory, e.g. `- "./.control:/home/obscape/.control"` with `control_socket = "/home/obscape/.control/control.sock"`.
 ## How to use it
 If `OBSISTENT_API_TOKEN` (or `api_token` in `config.toml`) is set, every `/v1/chat/*` request must carry `Authorization: Bearer <token>`. `/v1/health` is always open and returns `503` when the database is unreachable.
 
