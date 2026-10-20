@@ -12,7 +12,7 @@
     control.reload()                   # перечитать config.toml на сервере
 """
 
-from .client import ApiError, ObScapeClient, ObScapeError
+from .client import ApiError, ObScapeClient, ObScapeError, encode_image
 from .control import ConfigControl, ControlError, default_socket_path
 
 __all__ = [
@@ -21,7 +21,8 @@ __all__ = [
     "ControlError",
     "ObScapeClient",
     "ObScapeError",
+    "encode_image",
     "default_socket_path",
 ]
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"

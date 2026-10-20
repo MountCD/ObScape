@@ -11,7 +11,7 @@ pip install ./python
 ## HTTP API
 
 ```python
-from obscape import ObScapeClient
+from obscape import ObScapeClient, encode_image
 
 client = ObScapeClient("http://127.0.0.1:11080", token="...")  # token — из api_token
 print(client.health())                       # {"status": "ok", "db": ...}
@@ -22,6 +22,40 @@ reply = client.send_message(user_id=1, chat_id=chat["chat_id"], message="А те
 
 Ошибки сервера поднимаются как `ApiError` (с полями `status`, `message`,
 `payload`), недоступность адреса — как `ObScapeError`.
+
+### Стриминг
+
+`stream_new_chat` / `stream_message` возвращают генератор по SSE. Он отдаёт
+словари по мере генерации: `{"delta": "..."}` для порций текста и финальный
+`{"chat_id": ..., "time": ..., "message": ..., "done": True}`; при обрыве
+модели — `{"error": "..."}` и конец генератора.
+
+```python
+for event in client.stream_new_chat(user_id=1, message="Посчитай до пяти"):
+    if "delta" in event:
+        print(event["delta"], end="", flush=True)
+    else:
+        print("\nфинал:", event)          # {"chat_id": ..., "done": True, ...}
+
+# то же для существующего чата
+for event in client.stream_message(user_id=1, chat_id=chat["chat_id"], message="Ещё"):
+    ...
+```
+
+### Картинки (vision)
+
+`image` принимает data-URL или голый base64 (`encode_image` делает data-URL
+из файла). `save_media=True` дополнительно сохраняет картинку в БД, иначе
+она живёт только во временном кэше ядра.
+
+```python
+client.new_chat(
+    user_id=1,
+    message="Что на картинке?",
+    image=encode_image("cat.png"),
+    save_media=True,        # постоянный чат: картинка переживёт перезапуск
+)
+```
 
 ## Управление конфигом через Unix-сокет
 

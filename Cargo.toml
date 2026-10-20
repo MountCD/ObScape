@@ -3,7 +3,7 @@ resolver = "3"
 members = ["ob_common","ob_core", "ob_lib"]
 
 [workspace.dependencies]
-reqwest = { version = "0.13.5", features = ["json"] }
+reqwest = { version = "0.13.5", features = ["json", "stream"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 toml = "1.1.8+spec-1.1.0"
@@ -19,4 +19,9 @@ ob_common = { path = "ob_common" }
 ob_lib = { path = "ob_lib" }
 dotenvy = "0.15.7"
 async-trait = "0.1.92"
-ollama-rs = "0.3.6"
+ollama-rs = { version = "0.3.6", features = ["stream"] }
+futures-util = "0.3.33"
+tokio-stream = "0.1.19"
+async-stream = "0.3.6"
+base64 = "0.22.1"
+sha2 = "0.10.9"

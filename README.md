@@ -44,6 +44,47 @@ If `OBSISTENT_API_TOKEN` (or `api_token` in `config.toml`) is set, every `/v1/ch
 }
 ```
 
+Both endpoints take two optional fields:
+
+| field | meaning |
+| --- | --- |
+| `image` | a `data:image/<mime>;base64,...` URL or a bare base64 string (`png` / `jpeg` / `webp` / `gif`, up to 5 MiB). See [Vision](#vision-images). |
+| `save_media` | `false` (default) keeps the image only in a `/tmp` cache; `true` also stores it in the database so the chat survives a cache wipe and a restart. |
+| `stream` | `true` returns the answer as a Server-Sent Events stream instead of one JSON body. |
+
+## Streaming
+Add `?stream=true`, send `"stream": true` in the body, or set `Accept: text/event-stream`. The same request then answers with SSE: one event per generated chunk, then a final one that mirrors the plain response.
+
+```bash
+curl -N -H 'Content-Type: application/json' \
+  -d '{"user_id":1,"message":"count to five"}' \
+  'http://127.0.0.1:11080/v1/chat/new?stream=true'
+```
+```text
+data: {"delta":"one"}
+
+data: {"delta":" two"}
+
+data: {"chat_id":3,"time":1792487719,"message":"one two ...","done":true}
+```
+
+An SSE keep-alive comment is sent every 15 s so proxies do not drop an idle stream. If the upstream fails *before* the stream starts, you get a normal JSON error with the matching status (`502` for LLM failures) — the stream only begins once the first bytes actually flow. If it breaks mid-stream, the stream emits `data: {"error":"..."}` and the user message is rolled back, exactly like the non-streaming path. Either way the assistant reply is written to the database **once, at the end**, not incrementally.
+
+## Vision (images)
+`image` accepts a data URL or bare base64. The core sniffs the format from the file signature (a `data:` MIME that contradicts the bytes is rejected), caches the file under `<tmp>/obscape-media/<sha256>` with `0600` rights and drops entries after 24 h. Then it sends the image to the model as an OpenAI `image_url` part (or as base64 for Ollama) on every request that includes it.
+
+- **Temporary chat** (`save_media` false/omitted): the image lives only in that cache — nothing is written to the database.
+- **Persistent chat** (`save_media: true`): the base64 is also stored in `messages.media`, so the picture can be replayed later.
+
+`GET /v1/media/{message_id}` serves the image back (from the database first, then from the cache), protected by the same bearer token as the chat routes. `messages.media` is added automatically on startup (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
+
+```bash
+IMG=$(python3 -c 'import base64;print(base64.b64encode(open("cat.png","rb").read()).decode())')
+curl -H 'Content-Type: application/json' \
+  -d "{\"user_id\":1,\"message\":\"what is this?\",\"image\":\"$IMG\",\"save_media\":true}" \
+  http://127.0.0.1:11080/v1/chat/new
+```
+
 ## Backends
 Each agent picks its backend with `backend` in its `config.toml` block:
 
@@ -89,11 +130,18 @@ s.sendall(b'{\"cmd\":\"reload\"}\n'); print(s.recv(65536).decode())"
 pip install ./python
 ```
 ```python
-from obscape import ObScapeClient, ConfigControl
+from obscape import ObScapeClient, ConfigControl, encode_image
 
 client = ObScapeClient("http://127.0.0.1:11080", token="...")
 print(client.health())
 chat = client.new_chat(user_id=1, message="Hello")
+
+# Streaming: yields {"delta": "..."} chunks, then {"chat_id":..., "done": True}
+for event in client.stream_message(user_id=1, chat_id=chat["chat_id"], message="count to five"):
+    print(event, end="", flush=True)
+
+# Vision: a data URL, kept only for this chat (save_media=True stores it in the DB too)
+client.new_chat(user_id=1, message="what is this?", image=encode_image("cat.png"), save_media=True)
 
 control = ConfigControl()          # ~/.config/obscape/control.sock
 control.reload()

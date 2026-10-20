@@ -1,9 +1,13 @@
 [package]
 name = "ob_lib"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2024"
 
 [dependencies]
 ob_common.workspace = true
 reqwest.workspace = true
 sqlx.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+tokio-stream.workspace = true

@@ -1,4 +1,5 @@
 // PostgreSQL-backed message store.
+use crate::vision::StoredMedia;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
@@ -49,15 +50,92 @@ pub struct FunctionCall {
     pub arguments: String, // JSON внутри строки, как отдаёт API
 }
 
+/// Сообщение в формате апстрима.
+///
+/// `content` — либо простая строка (обычный текст), либо массив частей
+/// `[{type: "text"}, {type: "image_url"}]`: второй вариант нужен для
+/// vision, и именно его ждут OpenAI-совместимые серверы. Сериализация
+/// ветвится по [`LlmContent`] (`#[serde(untagged)]`), наружу формат
+/// остаётся прежним для текстовых сообщений.
 #[derive(Debug, Serialize, Clone)]
 pub struct LlmMessage {
     pub role: Roles,
-    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<LlmContentBody>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
 }
+
+/// Содержимое сообщения: строка или массив частей (text/image_url).
+#[derive(Debug, Serialize, Clone)]
+#[serde(untagged)]
+pub enum LlmContentBody {
+    /// Обычное текстовое сообщение — уходит строкой, как раньше.
+    Text(String),
+    /// Мультимодальное сообщение — уходит массивом частей.
+    Parts(Vec<crate::vision::LlmContent>),
+}
+
+impl LlmContentBody {
+    /// Только текст (для Ollama-ветки и для проверок).
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            LlmContentBody::Text(s) => Some(s),
+            LlmContentBody::Parts(_) => None,
+        }
+    }
+
+    /// Картинки в виде data-URL; пустой вектор — сообщение текстовое.
+    pub fn data_urls(&self) -> Vec<String> {
+        match self {
+            LlmContentBody::Text(_) => Vec::new(),
+            LlmContentBody::Parts(parts) => parts
+                .iter()
+                .filter_map(|p| match p {
+                    crate::vision::LlmContent::ImageUrl { image_url } => {
+                        Some(image_url.url.clone())
+                    }
+                    crate::vision::LlmContent::Text { .. } => None,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<&str> for LlmContentBody {
+    fn from(s: &str) -> Self {
+        LlmContentBody::Text(s.to_string())
+    }
+}
+
+impl From<String> for LlmContentBody {
+    fn from(s: String) -> Self {
+        LlmContentBody::Text(s)
+    }
+}
+
+/// Собрать содержимое сообщения из текста и картинок.
+///
+/// Без картинок получается обычная строка (обратная совместимость),
+/// с картинками — массив частей: сначала текст, потом `image_url`.
+pub fn message_content(text: &str, images: &[StoredMedia]) -> Option<LlmContentBody> {
+    if images.is_empty() {
+        return (!text.is_empty()).then(|| LlmContentBody::Text(text.to_string()));
+    }
+    let mut parts = Vec::with_capacity(images.len() + 1);
+    if !text.is_empty() {
+        parts.push(crate::vision::LlmContent::text(text));
+    }
+    parts.extend(
+        images
+            .iter()
+            .map(|m| crate::vision::LlmContent::image_data_url(m.to_data_url())),
+    );
+    Some(LlmContentBody::Parts(parts))
+}
+
 impl From<&JsonMessageContent> for LlmMessage {
     fn from(m: &JsonMessageContent) -> Self {
         let c = &m.content;
@@ -65,21 +143,21 @@ impl From<&JsonMessageContent> for LlmMessage {
             // ответ модели с запросом инструментов
             Roles::Assistant if c.tool_calls.is_some() => LlmMessage {
                 role: Roles::Assistant,
-                content: (!c.message.is_empty()).then(|| c.message.clone()),
+                content: (!c.message.is_empty()).then(|| c.message.clone().into()),
                 tool_calls: c.tool_calls.clone(),
                 tool_call_id: None,
             },
             // результат работы инструмента
             Roles::Tool => LlmMessage {
                 role: Roles::Tool,
-                content: Some(c.message.clone()),
+                content: Some(c.message.clone().into()),
                 tool_calls: None,
                 tool_call_id: c.tool_call_id.clone(),
             },
             // обычные system / user / assistant
             role => LlmMessage {
                 role: role.clone(),
-                content: Some(c.message.clone()),
+                content: message_content(&c.message, &c.media),
                 tool_calls: None,
                 tool_call_id: None,
             },
@@ -92,6 +170,15 @@ pub struct JsonRequestMessage {
     model: String,
     messages: Vec<LlmMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<StreamOptions>,
+}
+
+/// Опции стрима. Включаем `include_usage`, чтобы провайдеры, которые
+/// его требуют для совместимости, не отдавали ошибку на `stream: true`.
+#[derive(Debug, Serialize, Clone)]
+pub struct StreamOptions {
+    pub include_usage: bool,
 }
 
 impl JsonRequestMessage {
@@ -100,6 +187,9 @@ impl JsonRequestMessage {
             model,
             messages,
             stream,
+            stream_options: stream.then_some(StreamOptions {
+                include_usage: false,
+            }),
         }
     }
 }
@@ -114,6 +204,11 @@ pub struct ContentStruc {
     tool_calls: Option<Vec<ToolCall>>, // только у assistant
     #[serde(default)]
     tool_call_id: Option<String>, // только у tool
+    /// Картинки пользователя (`save_media = true`). Пусто — сообщение
+    /// только текстовое. `skip_serializing_if` держит JSON-представление
+    /// прежним, пока медиа нет.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    media: Vec<StoredMedia>,
 }
 
 impl ContentStruc {
@@ -125,7 +220,19 @@ impl ContentStruc {
             message,
             tool_calls: None,
             tool_call_id: None,
+            media: Vec::new(),
         }
+    }
+
+    /// То же сообщение, но с прикреплёнными картинками.
+    pub fn with_media(mut self, media: Vec<StoredMedia>) -> Self {
+        self.media = media;
+        self
+    }
+
+    /// Картинки сообщения.
+    pub fn media(&self) -> &[StoredMedia] {
+        &self.media
     }
 }
 
@@ -208,6 +315,13 @@ impl Database {
         .execute(&pool)
         .await?;
 
+        // Картинки пользователя (vision, `save_media = true`). Для баз,
+        // созданных до появления vision, колонки ещё нет — `ADD COLUMN
+        // IF NOT EXISTS` доводит схему до актуальной без ручной миграции.
+        sqlx::query(r#"ALTER TABLE messages ADD COLUMN IF NOT EXISTS media TEXT"#)
+            .execute(&pool)
+            .await?;
+
         Ok(Database { pool })
     }
 
@@ -215,7 +329,7 @@ impl Database {
     pub async fn export_chat(&self, chat_id: i64) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
             r#"
-            SELECT "time", chat_id, user_id, role, message, tool_calls, tool_call_id
+            SELECT "time", chat_id, user_id, role, message, tool_calls, tool_call_id, media
             FROM messages
             WHERE chat_id = $1
             ORDER BY "time" ASC, id ASC
@@ -237,15 +351,15 @@ impl Database {
     ) -> Result<Vec<JsonMessageContent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, MessageRow>(
             r#"
-            SELECT "time", chat_id, user_id, role, message, tool_calls, tool_call_id
+            SELECT "time", chat_id, user_id, role, message, tool_calls, tool_call_id, media
             FROM (
-                SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id
+                SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id, media
                 FROM messages
                 WHERE chat_id = $1 AND role = 'system'
                 UNION ALL
-                SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id
+                SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id, media
                 FROM (
-                    SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id
+                    SELECT id, "time", chat_id, user_id, role, message, tool_calls, tool_call_id, media
                     FROM messages
                     WHERE chat_id = $1 AND role <> 'system'
                     ORDER BY "time" DESC, id DESC
@@ -265,6 +379,10 @@ impl Database {
 
     /// Добавить одно сообщение. Возвращает `id` строки — по нему сообщение
     /// можно откатить через [`Database::delete_message`].
+    ///
+    /// Картинки (`content.media`) сохраняются в БД только здесь и только
+    /// в том случае, если вызывающий код их туда положил (это делает
+    /// `Assistant` при `save_media = true`).
     pub async fn add_message(&self, message: JsonMessageContent) -> Result<i64, sqlx::Error> {
         let calls = message
             .content
@@ -273,13 +391,17 @@ impl Database {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+        let media = (!message.content.media.is_empty())
+            .then(|| serde_json::to_string(&message.content.media))
+            .transpose()
+            .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
         let text =
             (!message.content.message.is_empty()).then_some(message.content.message.as_str());
 
         let row: (i64,) = sqlx::query_as(
             r#"
-            INSERT INTO messages ("time", chat_id, user_id, role, message, tool_calls, tool_call_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO messages ("time", chat_id, user_id, role, message, tool_calls, tool_call_id, media)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id
             "#,
         )
@@ -290,9 +412,26 @@ impl Database {
         .bind(text)
         .bind(calls)
         .bind(message.content.tool_call_id.as_deref())
+        .bind(media)
         .fetch_one(&self.pool)
         .await?;
         Ok(row.0)
+    }
+
+    /// Картинки конкретного сообщения по его `id` (роут `/v1/media/{id}`):
+    /// сначала из БД (`save_media = true`), иначе — из кэша [`VisionStore`].
+    pub async fn media_by_id(&self, message_id: i64) -> Result<Option<StoredMedia>, sqlx::Error> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as(r#"SELECT media FROM messages WHERE id = $1"#)
+                .bind(message_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let Some((Some(raw),)) = row else {
+            return Ok(None);
+        };
+        let stored: Vec<StoredMedia> = serde_json::from_str(&raw)
+            .map_err(|e| sqlx::Error::Protocol(format!("invalid media in DB row: {e}")))?;
+        Ok(stored.into_iter().next())
     }
 
     /// Удалить сообщение по `id`. Используется как компенсация: если
@@ -382,6 +521,7 @@ struct MessageRow {
     message: Option<String>,
     tool_calls: Option<String>,
     tool_call_id: Option<String>,
+    media: Option<String>,
 }
 
 impl MessageRow {
@@ -394,6 +534,13 @@ impl MessageRow {
             .map(serde_json::from_str::<Vec<ToolCall>>)
             .transpose()
             .map_err(|e| sqlx::Error::Protocol(format!("invalid tool_calls in DB row: {e}")))?;
+        let media = self
+            .media
+            .as_deref()
+            .map(serde_json::from_str::<Vec<StoredMedia>>)
+            .transpose()
+            .map_err(|e| sqlx::Error::Protocol(format!("invalid media in DB row: {e}")))?
+            .unwrap_or_default();
         Ok(JsonMessageContent {
             role,
             content: ContentStruc {
@@ -403,6 +550,7 @@ impl MessageRow {
                 message: self.message.unwrap_or_default(),
                 tool_calls,
                 tool_call_id: self.tool_call_id,
+                media,
             },
         })
     }
