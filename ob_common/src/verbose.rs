@@ -4,8 +4,8 @@
 //! `cfg.verbose == false`. Первым аргументом всегда идёт что-либо,
 //! из чего можно получить флаг — см. [`Verbosity`].
 
-/// Источник флага `verbose`. Реализовано для `Config` и `bool`, поэтому
-/// в макросы можно передавать и `&cfg`, и просто `true`/`false`.
+/// Источник флага `verbose`. Реализовано для `Config`, `bool` и `Arc<T>`,
+/// поэтому в макросы можно передавать и `&cfg`, и `Arc<Config>`, и `true`/`false`.
 pub trait Verbosity {
     fn verbose(&self) -> bool;
 }
@@ -23,6 +23,13 @@ impl Verbosity for crate::config::Config {
 }
 
 impl<T: Verbosity + ?Sized> Verbosity for &T {
+    fn verbose(&self) -> bool {
+        (**self).verbose()
+    }
+}
+
+/// `Arc<Config>` — снимок конфига из `Assistant::config()`.
+impl<T: Verbosity + ?Sized> Verbosity for std::sync::Arc<T> {
     fn verbose(&self) -> bool {
         (**self).verbose()
     }

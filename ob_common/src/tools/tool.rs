@@ -1,5 +1,5 @@
-use serde_json::Value;
 use async_trait::async_trait;
+use serde_json::Value;
 pub enum ToolErrors {
     Denied,
     NotFound,
@@ -18,15 +18,12 @@ impl std::fmt::Display for ToolErrors {
 #[async_trait]
 pub trait Tool {
     fn name(&self) -> String;
-    
-    async fn execute(
-        &self,
-        args: Value,
-    ) -> ToolResponse;
+
+    async fn execute(&self, args: Value) -> ToolResponse;
 }
 
 pub struct ToolResponse {
     pub succes: bool,
     pub content: Value,
-    pub error: Option<ToolErrors>
+    pub error: Option<ToolErrors>,
 }

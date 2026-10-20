@@ -1,21 +1,40 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Write;
 
-#[derive(Debug, Deserialize, Clone)]
+/// Бэкэнд, через который агент ходит в модель.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    /// OpenAI-совместимый chat completions (по умолчанию): `api_url` —
+    /// полный URL эндпоинта, нужен `api_key`.
+    #[default]
+    OpenAI,
+    /// Локальный Ollama через `ollama-rs`: `api_url` — адрес сервера
+    /// Ollama (`http://127.0.0.1:11434`), ключ не нужен.
+    Ollama,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AgentConfig {
     pub enabled: bool,
     /// Агент по умолчанию: используется, когда в `POST /v1/chat/new`
     /// не передан `agent`. Не больше одного включённого агента с `main = true`.
     #[serde(default)]
     pub main: bool,
+    /// Какой бэкэнд использовать (см. [`Backend`]). По умолчанию `openai`.
+    #[serde(default)]
+    pub backend: Backend,
     pub model_id: String,
+    /// Для `backend = "openai"` — URL chat completions, для `backend = "ollama"`
+    /// — адрес сервера Ollama. В обоих случаях полный http(s) URL.
     pub api_url: String,
     /// Ключ апстрима. Можно не указывать в TOML и задать через
     /// `OBSISTENT_AGENT_<ИМЯ>_API_KEY` (env имеет приоритет). Пустая
-    /// строка считается отсутствием ключа.
+    /// строка считается отсутствием ключа. Для `backend = "ollama"`
+    /// не требуется.
     #[serde(default)]
     pub api_key: String,
     pub personality_prompt: String,
@@ -24,13 +43,14 @@ pub struct AgentConfig {
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
     /// Список всех доступных для использования инструментов, описанных в mcp.json.
-    pub tools: HashMap<String, ToolRights> // String на время, в будущем тут будет сам Tool.
+    pub tools: HashMap<String, ToolRights>, // String на время, в будущем тут будет сам Tool.
 }
-#[derive(Debug, Deserialize, Clone, Copy)]
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum ToolRights {
     Approve,
     Ask,
-    Deny
+    Deny,
 }
 
 /// Дефолт для `timeout_secs`, если поле не задано в config.toml.
@@ -46,7 +66,7 @@ impl AgentConfig {
         format!("{}\n\n{}", shared, self.personality_prompt)
     }
 }
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
     /// Маркер неотредактированного шаблона от `--init`. В рукописном
     /// конфиге поле можно не указывать.
@@ -55,6 +75,7 @@ pub struct Config {
     pub database_url: String,
     /// Адрес и порт HTTP-сервера (например, `0.0.0.0:11080`).
     /// `None` означает "использовать дефолт".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_bind: Option<String>,
     #[serde(default)]
     pub verbose: bool,
@@ -66,8 +87,13 @@ pub struct Config {
     /// Bearer-токен для `/v1/chat/*`. `None` — без аутентификации
     /// (только для локальной разработки). Env `OBSISTENT_API_TOKEN`
     /// имеет приоритет.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_token: Option<String>,
+    /// Путь к Unix-сокету управления: по нему приходят команды
+    /// `get` / `reload` / `set` (подгрузка конфига на лету).
+    /// `None` — `<каталог конфига>/control.sock`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_socket: Option<String>,
     /// Сюда указывается файл mcp.json, содержащий все доступные инструменты.
     pub mcp_file: String,
     pub agents: HashMap<String, AgentConfig>,
@@ -80,6 +106,30 @@ impl Config {
             .iter()
             .find(|(_, a)| a.enabled && a.main)
             .map(|(name, _)| name.as_str())
+    }
+
+    /// Копия конфига с вырезанными секретами: пароль БД, `api_key` и
+    /// `api_token` заменяются на `***`. Используется для вывода наружу
+    /// (`--print-config`, команда `get` на control-сокете).
+    pub fn masked(&self) -> Config {
+        let mut m = self.clone();
+        m.database_url = mask_db_password(&self.database_url);
+        for agent in m.agents.values_mut() {
+            if !agent.api_key.trim().is_empty() {
+                agent.api_key = "***".into();
+            }
+        }
+        if m.api_token.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+            m.api_token = Some("***".into());
+        }
+        m
+    }
+
+    /// [`Config::masked`] в виде TOML — что отдаёт команда `get`.
+    /// Выход **только для чтения**: значения секретов там `***`,
+    /// отдавать его обратно в `set` нельзя (сервер это отклоняет).
+    pub fn masked_toml(&self) -> Result<String, String> {
+        toml::to_string(&self.masked()).map_err(|e| format!("failed to serialize config: {e}"))
     }
 }
 
@@ -167,7 +217,8 @@ pub fn agent_api_key_env(name: &str) -> String {
 }
 // ---
 /// Сырые переопределения путей, полученные из CLI / ENV.
-/// Разбираются один раз в `main` через [`parse_cli`] и передаются дальше.
+/// Разбираются один раз в `main` через [`parse_cli`] и передаются дальше
+/// (в том числе в control-сокет, чтобы `reload`/`set` перечитывали тот же файл).
 /// Поля приватные — снаружи структура непрозрачна.
 #[derive(Debug, Default, Clone)]
 pub struct PathOverrides {
@@ -189,6 +240,16 @@ pub struct PathOverrides {
 }
 
 impl PathOverrides {
+    /// Overrides, указывающие на конкретный каталог конфига. Нужен
+    /// control-сокету и тестам: `parse_cli` читает argv процесса, а им
+    /// управлять извне нельзя.
+    pub fn with_config_dir(dir: impl Into<String>) -> Self {
+        PathOverrides {
+            config: Some(dir.into()),
+            ..PathOverrides::default()
+        }
+    }
+
     /// Запрошен ли `--help` / `-h`.
     pub fn help(&self) -> bool {
         self.help
@@ -224,7 +285,9 @@ pub fn print_help() {
               {ENV_DATABASE}          Same as --database\n  \
               OBSISTENT_AGENT_<NAME>_API_KEY  api_key for agent <NAME> (overrides config.toml)\n  \
               {ENV_API_TOKEN}          Bearer token clients must send to /v1/chat/* (overrides api_token)\n\n\
-          A .env file in the current directory is loaded on start (existing variables win).\n",
+          A .env file in the current directory is loaded on start (existing variables win).\n\
+          The control socket (get/reload/set) listens at <config dir>/control.sock\n\
+          unless `control_socket` is set in config.toml.\n",
         DEFAULT = make_file_path().unwrap_or_else(|_| "~/.config/obscape/config.toml".to_string()),
         ENV_CONFIG = ENV_CONFIG,
         ENV_DATABASE = ENV_DATABASE,
@@ -351,6 +414,17 @@ pub fn resolve_config_path(overrides: &PathOverrides) -> Result<String, ConfigEr
 /// Загрузить конфиг с учётом CLI-аргументов и ENV.
 /// Приоритет: CLI > ENV > значение из config.toml.
 pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
+    load_config_inner(overrides, true)
+}
+
+/// То же, что [`load_config`], но без попытки открыть редактор при
+/// `autogenerated = true`. Используется control-сокетом (`reload`/`set`):
+/// горячая перезагрузка не должна ничего открывать на рабочем столе.
+pub fn reload_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
+    load_config_inner(overrides, false)
+}
+
+fn load_config_inner(overrides: &PathOverrides, allow_editor: bool) -> Result<Config, ConfigError> {
     let mut conf_path = resolve_config_path(overrides)?;
     conf_path = format_conf_path(conf_path);
 
@@ -364,7 +438,7 @@ pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
     if config.autogenerated {
         // Редактор открываем только вне контейнера; отказ от старта —
         // в любом случае.
-        if !is_containerized() {
+        if allow_editor && !is_containerized() {
             #[cfg(target_os = "windows")]
             {
                 let _ = std::process::Command::new("notepad")
@@ -402,6 +476,16 @@ pub fn load_config(overrides: &PathOverrides) -> Result<Config, ConfigError> {
     {
         config.http_bind = Some(DEFAULT_HTTP_BIND.to_string());
     }
+    // Пустой `control_socket = ""` — то же самое, что не заданный.
+    if config
+        .control_socket
+        .as_deref()
+        .map(str::trim)
+        .map(str::is_empty)
+        .unwrap_or(false)
+    {
+        config.control_socket = None;
+    }
 
     Ok(config)
 }
@@ -434,7 +518,7 @@ fn validate_config(config: &mut Config) -> Result<(), ConfigError> {
         if !agent.enabled {
             continue;
         }
-        if agent.api_key.trim().is_empty() {
+        if agent.backend == Backend::OpenAI && agent.api_key.trim().is_empty() {
             return Err(ConfigError::Invalid(format!(
                 "agent `{name}` has no api_key: set it in config.toml or via {var}"
             )));
@@ -444,11 +528,17 @@ fn validate_config(config: &mut Config) -> Result<(), ConfigError> {
                 "agent `{name}` has an empty model_id"
             )));
         }
+        let url_expectation = match agent.backend {
+            Backend::OpenAI => "expected a full http(s) URL of the chat completions endpoint",
+            Backend::Ollama => {
+                "expected a full http(s) URL of the Ollama server (e.g. http://127.0.0.1:11434)"
+            }
+        };
         match reqwest::Url::parse(&agent.api_url) {
             Ok(u) if u.scheme() == "http" || u.scheme() == "https" => {}
             _ => {
                 return Err(ConfigError::Invalid(format!(
-                    "agent `{name}` has an invalid api_url `{}` (expected a full http(s) URL of the chat completions endpoint)",
+                    "agent `{name}` has an invalid api_url `{}` ({url_expectation})",
                     agent.api_url
                 )));
             }
@@ -463,6 +553,9 @@ fn validate_config(config: &mut Config) -> Result<(), ConfigError> {
     // Пост-валидация критичных полей.
     if config.database_url.trim().is_empty() {
         return Err(ConfigError::MissingField("database_url"));
+    }
+    if config.mcp_file.trim().is_empty() {
+        return Err(ConfigError::MissingField("mcp_file"));
     }
     if config.history_limit == 0 {
         return Err(ConfigError::Invalid(
@@ -510,12 +603,18 @@ history_limit = 50
 # Bearer-токен, который клиенты должны присылать в Authorization для /v1/chat/*.
 # Лучше задавать через OBSISTENT_API_TOKEN (в .env). Без токена API открыт — только для локальной отладки.
 # api_token = ""
-mcp_file = ./mcp/master.json
+# Unix-сокет управления (get/reload/set — подгрузка конфига на лету).
+# По умолчанию: <каталог конфига>/control.sock
+# control_socket = "/run/obscape/control.sock"
+# Файл mcp.json со списком доступных инструментов.
+mcp_file = "mcp.json"
 
 [agents.primary]
 enabled = true
 # Агент по умолчанию для POST /v1/chat/new без поля `agent`.
 main = true
+# Бэкэнд: "openai" (OpenAI-совместимый API) или "ollama" (локальный Ollama).
+backend = "openai"
 model_id = "gpt-4o-mini"
 # Полный URL эндпоинта chat completions (OpenAI-совместимый API).
 api_url = "https://api.openai.com/v1/chat/completions"
@@ -525,7 +624,18 @@ api_key = ""
 personality_prompt = "Your name is Paul. You must write using only low letters."
 # Таймаут запроса к модели в секундах.
 timeout_secs = 120
+# Права инструментов (имена из mcp.json): Approve / Ask / Deny.
 tools = {}
+
+# Пример локального агента на Ollama (бэкэнд через ollama-rs, ключ не нужен):
+# [agents.local]
+# enabled = false
+# backend = "ollama"
+# model_id = "llama3.2"
+# api_url = "http://127.0.0.1:11434"
+# personality_prompt = "Concise local assistant."
+# timeout_secs = 300
+# tools = {}
         "#;
 
     file.write_all(template.as_bytes())
@@ -551,7 +661,7 @@ pub fn print_config(config: &Config) {
     let mut agents_list = Vec::new();
     for (name, aconfig) in &config.agents {
         if aconfig.enabled {
-            agents_list.push(name);
+            agents_list.push(format!("{name} ({:?})", aconfig.backend));
         }
     }
 
@@ -562,6 +672,14 @@ pub fn print_config(config: &Config) {
     );
     println!("verbose       = {}", config.verbose);
     println!("history_limit = {}", config.history_limit);
+    println!("mcp_file      = {}", config.mcp_file);
+    println!(
+        "control_sock  = {}",
+        config
+            .control_socket
+            .as_deref()
+            .unwrap_or("(default: <config dir>/control.sock)")
+    );
     println!(
         "api_token     = {}",
         if config.api_token.is_some() {
@@ -571,7 +689,7 @@ pub fn print_config(config: &Config) {
         }
     );
     println!("shared_prompt = {}", config.shared_prompt);
-    println!("enabled agents = {:#?}", agents_list);
+    println!("enabled agents = {agents_list:#?}");
     println!(
         "main agent    = {}",
         config.main_agent().unwrap_or("(none)")
@@ -608,7 +726,7 @@ pub fn dispatch_cli(overrides: &PathOverrides) -> Result<Config, i32> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentConfig, Config, ConfigError, PathOverrides, mask_db_password, parse_args,
+        AgentConfig, Backend, Config, ConfigError, PathOverrides, mask_db_password, parse_args,
         validate_config,
     };
     use std::collections::HashMap;
@@ -617,12 +735,13 @@ mod tests {
         AgentConfig {
             enabled,
             main: false,
+            backend: Backend::OpenAI,
             model_id: "m".into(),
             api_url: "https://api.example.com/v1/chat/completions".into(),
             api_key: "k".into(),
             personality_prompt: "p".into(),
             timeout_secs: 10,
-            tools: HashMap::new()
+            tools: HashMap::new(),
         }
     }
 
@@ -635,7 +754,8 @@ mod tests {
             shared_prompt: String::new(),
             history_limit: 50,
             api_token: None,
-            mcp_file: String::new(),
+            control_socket: None,
+            mcp_file: "mcp.json".into(),
             agents: agents
                 .into_iter()
                 .map(|(n, a)| (n.to_string(), a))
@@ -694,6 +814,26 @@ mod tests {
     }
 
     #[test]
+    fn ollama_agent_does_not_need_api_key() {
+        let mut a = agent(true);
+        a.backend = Backend::Ollama;
+        a.api_key = String::new();
+        a.api_url = "http://127.0.0.1:11434".into();
+        let mut c = config(vec![("local", a)]);
+        assert!(validate_config(&mut c).is_ok());
+
+        // Но невалидный URL и пустая модель всё равно отклоняются.
+        let mut a = agent(true);
+        a.backend = Backend::Ollama;
+        a.api_key = String::new();
+        a.api_url = "localhost:11434".into();
+        invalid(
+            validate_config(&mut config(vec![("local", a)])),
+            "Ollama server",
+        );
+    }
+
+    #[test]
     fn rejects_zero_history_limit_and_two_mains() {
         let mut c = config(vec![("x", agent(true))]);
         c.history_limit = 0;
@@ -713,6 +853,36 @@ mod tests {
             validate_config(&mut c),
             Err(ConfigError::MissingField("database_url"))
         ));
+    }
+
+    #[test]
+    fn empty_mcp_file_is_missing_field() {
+        let mut c = config(vec![("x", agent(true))]);
+        c.mcp_file = " ".into();
+        assert!(matches!(
+            validate_config(&mut c),
+            Err(ConfigError::MissingField("mcp_file"))
+        ));
+    }
+
+    #[test]
+    fn masked_toml_hides_secrets_but_keeps_shape() {
+        let mut c = config(vec![("primary", agent(true))]);
+        c.database_url = "postgres://user:s3cret@localhost:5432/obscape".into();
+        c.api_token = Some("t0ken".into());
+
+        let out = c.masked_toml().expect("masked toml");
+        assert!(!out.contains("s3cret"), "{out}");
+        assert!(!out.contains("t0ken"), "{out}");
+        assert!(!out.contains("\"k\""), "{out}"); // api_key агента
+        assert!(out.contains("user:***@localhost"), "{out}");
+        assert!(out.contains("history_limit"), "{out}");
+        assert!(out.contains("mcp_file"), "{out}");
+
+        // И маскированный вариант снова парсится в Config.
+        let back: Config = toml::from_str(&out).expect("masked toml parses");
+        assert_eq!(back.agents["primary"].api_key, "***");
+        assert_eq!(back.api_token.as_deref(), Some("***"));
     }
 
     fn parse(args: &[&str]) -> Result<PathOverrides, ConfigError> {
@@ -826,5 +996,11 @@ mod tests {
     fn masks_password_containing_at() {
         // Незакодированный `@` в пароле — главное, что пароль не утекает.
         assert!(!mask_db_password("postgres://u:p@ss@h/db").contains("p@ss"));
+    }
+
+    #[test]
+    fn config_dir_override_round_trips() {
+        let o = PathOverrides::with_config_dir("/etc/obscape");
+        assert_eq!(super::resolve_config_path(&o).unwrap(), "/etc/obscape");
     }
 }

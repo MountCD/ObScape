@@ -3,6 +3,7 @@ use ob_common::{
     database,
 };
 use ob_lib::{Assistant, ObScapeError};
+pub mod control;
 pub mod server;
 
 #[tokio::main]
@@ -20,7 +21,7 @@ async fn main() {
         }
     };
 
-    // `--help` / `--init` обрабатываем до того, как трогать конфиг:
+    // `--help` / `--init` обрабатываем до того, как трогаем конфиг:
     // справка не должна ничего создавать на диске.
     if overrides.help() {
         config::print_help();
@@ -42,7 +43,7 @@ async fn main() {
             std::process::exit(2);
         }
     };
-    let path = format_conf_path(conf_path);
+    let path = format_conf_path(conf_path.clone());
     if !std::path::Path::new(&path).exists() {
         if config::is_containerized() {
             eprintln!(
@@ -111,12 +112,47 @@ async fn main() {
             config::ENV_API_TOKEN
         );
     }
+
+    // Путь к Unix-сокету управления: явный `control_socket` из конфига
+    // или `<каталог конфига>/control.sock` по умолчанию.
+    let control_path = std::path::PathBuf::from(
+        cfg.control_socket
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{conf_path}/control.sock")),
+    );
+
     let state = server::AppState::new(db, cfg);
+    let control_state = control::ControlState {
+        assistant: state.assistant.clone(),
+        overrides: overrides.clone(),
+        config_path: std::path::PathBuf::from(path.clone()),
+        socket_path: control_path.clone(),
+        http_bind: bind_addr.clone(),
+    };
+    // Сокет биндим до старта HTTP: ошибку вида «занято» нужно увидеть сразу.
+    let control_listener = match control::bind(&control_state) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!(
+                "failed to bind control socket {}: {e}",
+                control_path.display()
+            );
+            std::process::exit(6);
+        }
+    };
+    tokio::spawn(control::serve(control_listener, control_state));
 
     println!("obscape: listening on http://{bind_addr}");
     println!("  POST /v1/chat/new      - new chat with the first message");
     println!("  POST /v1/chat/message  - message in an existing chat");
     println!("  GET  /v1/health        - health check");
+    println!(
+        "  control socket         - get / reload / set ({})",
+        control_path.display()
+    );
 
     let app = server::router(state);
     let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
@@ -127,10 +163,15 @@ async fn main() {
         }
     };
 
-    if let Err(e) = axum::serve(listener, app)
+    let server_result = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
-        .await
-    {
+        .await;
+
+    // Убираем за собой сокет, чтобы следующий запуск не спотыкался
+    // о файл от остановленного процесса.
+    let _ = std::fs::remove_file(&control_path);
+
+    if let Err(e) = server_result {
         eprintln!("server exited with an error: {e}");
         std::process::exit(5);
     }
