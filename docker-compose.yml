@@ -15,6 +15,7 @@ services:
       retries: 10
     restart: unless-stopped
   ob_core:
+    image: ob_core:latest
     build: .
     depends_on:
       db:
@@ -37,6 +38,6 @@ services:
     ports:
       - "${OB_PORT:-11080}:11080"
     restart: unless-stopped
-
+  
 volumes:
   pgdata:
