@@ -12,8 +12,10 @@ pub enum AgentError {
     Http(reqwest::Error),
     /// Ошибка сериализации/десериализации JSON.
     Json(serde_json::Error),
-    /// Апстрим вернул ответ без ожидаемого `choices[0].message.content`.
+    /// Апстрим вернул ответ без ожидаемого `choices[0].message.content` или пустую строку.
     EmptyResponse,
+    /// Ответ модели был оборван или отфильтрован (finish_reason = length, content_filter и т.д.).
+    TruncatedResponse(String),
     /// Апстрим ответил не-2xx. Тело ответа сохраняется: именно там
     /// лежит настоящая причина (`model not found`, `context overflow`).
     Upstream { status: u16, body: String },
@@ -31,6 +33,9 @@ impl std::fmt::Display for AgentError {
             AgentError::Http(e) => write!(f, "http: {e}"),
             AgentError::Json(e) => write!(f, "json: {e}"),
             AgentError::EmptyResponse => write!(f, "Empty response from upstream"),
+            AgentError::TruncatedResponse(reason) => {
+                write!(f, "upstream response incomplete (finish_reason: {reason})")
+            }
             AgentError::Upstream { status, body } => {
                 write!(f, "upstream returned {status}")?;
                 let body = body.trim();
@@ -159,13 +164,37 @@ async fn make_openai_request(
         });
     }
     let response = response.json::<serde_json::Value>().await?;
+    parse_openai_response(&response)
+}
 
-    let content = response["choices"][0]["message"]["content"]
+/// Разобрать ответ OpenAI completions, проверяя `content` и `finish_reason`.
+fn parse_openai_response(response: &serde_json::Value) -> Result<String, AgentError> {
+    let choice = response["choices"]
+        .as_array()
+        .and_then(|c| c.first())
+        .ok_or(AgentError::EmptyResponse)?;
+
+    if let Some(finish_reason) = choice["finish_reason"].as_str() {
+        match finish_reason {
+            "stop" => {}
+            "length" | "content_filter" | "null" => {
+                return Err(AgentError::TruncatedResponse(finish_reason.to_string()));
+            }
+            other => {
+                return Err(AgentError::TruncatedResponse(other.to_string()));
+            }
+        }
+    }
+
+    let content = choice["message"]["content"]
         .as_str()
-        .ok_or(AgentError::EmptyResponse)?
-        .to_string();
+        .ok_or(AgentError::EmptyResponse)?;
 
-    Ok(content)
+    if content.is_empty() {
+        return Err(AgentError::EmptyResponse);
+    }
+
+    Ok(content.to_string())
 }
 
 /// OpenAI-совместимый стрим: SSE-чанки `data: {...}` до `data: [DONE]`.
@@ -500,5 +529,85 @@ mod tests {
             Some("AAAA")
         );
         assert_eq!(base64_payload("not-a-data-url"), None);
+    }
+
+    #[test]
+    fn parse_openai_response_success() {
+        let json = serde_json::json!({
+            "choices": [{
+                "message": { "content": "Hello world" },
+                "finish_reason": "stop"
+            }]
+        });
+        assert_eq!(parse_openai_response(&json).unwrap(), "Hello world");
+
+        // finish_reason can be omitted by some providers
+        let json_no_finish = serde_json::json!({
+            "choices": [{
+                "message": { "content": "Hello world" }
+            }]
+        });
+        assert_eq!(
+            parse_openai_response(&json_no_finish).unwrap(),
+            "Hello world"
+        );
+    }
+
+    #[test]
+    fn parse_openai_response_rejects_empty_content() {
+        let json_empty = serde_json::json!({
+            "choices": [{
+                "message": { "content": "" },
+                "finish_reason": "stop"
+            }]
+        });
+        assert!(matches!(
+            parse_openai_response(&json_empty),
+            Err(AgentError::EmptyResponse)
+        ));
+
+        let json_missing = serde_json::json!({
+            "choices": [{
+                "message": {},
+                "finish_reason": "stop"
+            }]
+        });
+        assert!(matches!(
+            parse_openai_response(&json_missing),
+            Err(AgentError::EmptyResponse)
+        ));
+
+        let json_no_choices = serde_json::json!({
+            "choices": []
+        });
+        assert!(matches!(
+            parse_openai_response(&json_no_choices),
+            Err(AgentError::EmptyResponse)
+        ));
+    }
+
+    #[test]
+    fn parse_openai_response_rejects_truncated_or_filtered() {
+        let json_length = serde_json::json!({
+            "choices": [{
+                "message": { "content": "Incomplete thought..." },
+                "finish_reason": "length"
+            }]
+        });
+        assert!(matches!(
+            parse_openai_response(&json_length),
+            Err(AgentError::TruncatedResponse(reason)) if reason == "length"
+        ));
+
+        let json_filter = serde_json::json!({
+            "choices": [{
+                "message": { "content": "Blocked..." },
+                "finish_reason": "content_filter"
+            }]
+        });
+        assert!(matches!(
+            parse_openai_response(&json_filter),
+            Err(AgentError::TruncatedResponse(reason)) if reason == "content_filter"
+        ));
     }
 }
