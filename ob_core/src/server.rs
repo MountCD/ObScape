@@ -106,8 +106,10 @@ async fn require_token(State(state): State<AppState>, req: Request, next: Next) 
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::trim);
+        .and_then(|v| v.split_once(' '))
+        .filter(|(v,_)| v.eq_ignore_ascii_case("bearer"))
+        .map(|(_,token)| token.trim_start())
+        .filter(|v| !v.is_empty());
     match presented {
         Some(t) if constant_time_eq(t.as_bytes(), expected.as_bytes()) => next.run(req).await,
         _ => (
